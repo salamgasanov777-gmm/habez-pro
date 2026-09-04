@@ -23,3 +23,7 @@ jobs:
         run: npm --prefix web run build
       - name: Проверка уязвимостей в зависимостях
         run: npm --prefix api audit --audit-level=high
+
+# Файл лежит в docs, а не в .github/workflows: у текущего ключа доступа
+# нет права заводить автоматические проверки. Чтобы включить их, скопируйте
+# этот файл в .github/workflows/ci.yml через веб-интерфейс GitHub.
