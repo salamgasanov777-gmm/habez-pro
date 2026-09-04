@@ -30,12 +30,16 @@ const rows = all(
 
 const products = decorate(tenant.id, rows, null, { full: true }).map((p) => {
   if (withPrices) return p;
-  // Без явного разрешения цены не выгружаются. Выдуманная цена на публичном
-  // сайте завода — это дезинформация покупателя, а не «демонстрация».
+  // Без явного разрешения цены и остатки не выгружаются. Выдуманная цена
+  // или «в наличии 77 шт» на публичном сайте завода — это дезинформация
+  // покупателя, а не «демонстрация». Нет данных — нет и подписи.
   return {
     ...p,
     priceFrom: null,
-    variants: p.variants.map((v) => ({ ...v, price: null, priceOnRequest: true, priceBreaks: [] })),
+    inStock: false,
+    variants: p.variants.map((v) => ({
+      ...v, price: null, priceOnRequest: true, priceBreaks: [], stock: null,
+    })),
   };
 });
 
