@@ -49,16 +49,19 @@ function Header() {
           <button className="icon-btn" onClick={() => setTheme(dark ? "light" : "dark")} aria-label="Сменить тему">
             {dark ? <Sun /> : <Moon />}
           </button>
-          <Link to="/favorites" className="icon-btn" aria-label="Избранное">
+          {/* На узком экране эти же кнопки стоят в нижней панели — здесь их
+              прячет CSS (.dup-tab), чтобы значки не дублировались. Наверху
+              остаётся только смена темы: её в нижней панели нет. */}
+          <Link to="/favorites" className="icon-btn dup-tab" aria-label="Избранное">
             <Star filled={false} />
             {favorites.size > 0 && <span className="counter">{favorites.size}</span>}
           </Link>
-          <Link to="/cart" className="icon-btn" aria-label="Корзина">
+          <Link to="/cart" className="icon-btn dup-tab" aria-label="Корзина">
             <Cart />
             {cart.count > 0 && <span className="counter">{cart.count}</span>}
           </Link>
           {!STANDALONE && (
-            <Link to={user ? "/account" : "/login"} className="icon-btn" aria-label="Кабинет">
+            <Link to={user ? "/account" : "/login"} className="icon-btn dup-tab" aria-label="Кабинет">
               <User />
             </Link>
           )}

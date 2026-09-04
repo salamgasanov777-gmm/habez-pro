@@ -71,7 +71,9 @@
 }
 
 * { box-sizing: border-box; }
-html { -webkit-text-size-adjust: 100%; }
+/* Приложение не масштабируется: щипок и двойное касание не приближают
+   страницу — как в обычном мобильном приложении. */
+html { -webkit-text-size-adjust: 100%; touch-action: pan-x pan-y; }
 
 body {
   margin: 0;
@@ -424,6 +426,8 @@ h3 { font-size: 16px; }
 .tabbar a.on { color: var(--accent); }
 @media (max-width: 760px) {
   .tabbar { display: flex; }
+  /* Избранное, корзина и кабинет уехали в нижнюю панель — вверху они лишние. */
+  .nav-actions .dup-tab { display: none; }
   body { padding-bottom: 62px; }
   .grid { grid-template-columns: repeat(auto-fill, minmax(158px, 1fr)); gap: 11px; }
   .hero { padding: 20px; }
