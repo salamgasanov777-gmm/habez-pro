@@ -1,0 +1,17 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "hgz-api",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["--prefix", "api", "run", "start"],
+      "port": 4000
+    },
+    {
+      "name": "hgz-web",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["--prefix", "web", "run", "dev"],
+      "port": 5173
+    }
+  ]
+}

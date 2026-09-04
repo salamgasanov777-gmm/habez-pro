@@ -1,0 +1,18 @@
+services:
+  api:
+    build:
+      context: .
+      dockerfile: api/Dockerfile
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_FILE: /data/hgz.db
+      UPLOAD_DIR: /data/uploads
+    ports:
+      - "127.0.0.1:4000:4000"
+    volumes:
+      # База и загруженные файлы живут в томе: пересборка образа их не трогает.
+      - hgz-data:/data
+
+volumes:
+  hgz-data:

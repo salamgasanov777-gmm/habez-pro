@@ -1,0 +1,22 @@
+{
+  "name": "@hgz/web",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "build:standalone": "VITE_STANDALONE=1 BASE=/habez-pro/ vite build --outDir dist-standalone && node scripts/pages-fixup.js dist-standalone",
+    "preview:standalone": "vite preview --outDir dist-standalone --port 4173"
+  },
+  "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-router-dom": "^6.28.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.4",
+    "vite": "^6.0.7"
+  }
+}

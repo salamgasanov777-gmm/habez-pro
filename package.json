@@ -1,0 +1,14 @@
+{
+  "name": "hgz-pro",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Каталог, заказы и панель управления для производителя стройматериалов",
+  "scripts": {
+    "setup": "npm --prefix api install && npm --prefix web install && npm --prefix api run reset",
+    "dev:api": "npm --prefix api run dev",
+    "dev:web": "npm --prefix web run dev",
+    "build": "npm --prefix web run build",
+    "test": "npm --prefix api test",
+    "start": "npm --prefix api start"
+  }
+}

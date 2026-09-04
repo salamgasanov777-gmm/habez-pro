@@ -1,0 +1,42 @@
+// Спецификация API. Держим руками и компактно: генераторы схем из кода
+// дают документ, который никто не читает, а этот открывается в Swagger UI.
+export const openapi = {
+  openapi: "3.0.3",
+  info: { title: "HGZ Pro API", version: "1.0.0", description: "Каталог, заказы, оплата и админка. Мультитенантно: тенант определяется доменом или заголовком x-tenant." },
+  servers: [{ url: "/" }],
+  components: {
+    securitySchemes: { bearer: { type: "http", scheme: "bearer", bearerFormat: "JWT" } },
+    parameters: { tenant: { name: "x-tenant", in: "header", schema: { type: "string" }, description: "Slug компании, если резолв не по домену" } },
+  },
+  paths: {
+    "/api/health": { get: { summary: "Проверка живости", responses: { 200: { description: "ok" } } } },
+    "/api/catalog/meta": { get: { summary: "Категории, задачи, настройки витрины", responses: { 200: { description: "ok" } } } },
+    "/api/catalog/products": { get: { summary: "Список товаров с фильтрами и поиском", parameters: [
+      { name: "search", in: "query", schema: { type: "string" } },
+      { name: "category", in: "query", schema: { type: "string" } },
+      { name: "task", in: "query", schema: { type: "string", enum: ["wet", "dry", "facade", "floor-heat", "plinth"] } },
+      { name: "sort", in: "query", schema: { type: "string", enum: ["default", "name", "price_asc", "price_desc", "new"] } },
+      { name: "page", in: "query", schema: { type: "integer" } },
+    ], responses: { 200: { description: "ok" } } } },
+    "/api/catalog/products/{key}": { get: { summary: "Карточка товара по id или slug", responses: { 200: { description: "ok" }, 404: { description: "не найден" } } } },
+    "/api/catalog/compare": { get: { summary: "Сводная таблица сравнения", responses: { 200: { description: "ok" } } } },
+    "/api/catalog/calc": { post: { summary: "Расчёт расхода материала", responses: { 200: { description: "ok" } } } },
+    "/api/auth/register": { post: { summary: "Регистрация по почте и паролю", responses: { 200: { description: "ok" } } } },
+    "/api/auth/login": { post: { summary: "Вход по почте и паролю", responses: { 200: { description: "ok" } } } },
+    "/api/auth/otp/request": { post: { summary: "Запрос кода на телефон", responses: { 200: { description: "ok" } } } },
+    "/api/auth/otp/verify": { post: { summary: "Вход по коду", responses: { 200: { description: "ok" } } } },
+    "/api/auth/refresh": { post: { summary: "Обновление access-токена по cookie", responses: { 200: { description: "ok" } } } },
+    "/api/cart": { get: { summary: "Корзина", responses: { 200: { description: "ok" } } } },
+    "/api/cart/items": { post: { summary: "Добавить позицию", responses: { 200: { description: "ok" } } } },
+    "/api/orders": { post: { summary: "Оформить заказ", responses: { 201: { description: "создан" } } },
+      get: { summary: "Мои заказы", security: [{ bearer: [] }], responses: { 200: { description: "ok" } } } },
+    "/api/payments/create": { post: { summary: "Создать платёж и получить ссылку на оплату", responses: { 200: { description: "ok" } } } },
+    "/api/payments/webhook/{provider}": { post: { summary: "Вебхук провайдера оплаты", responses: { 200: { description: "ok" } } } },
+    "/api/leads": { post: { summary: "Заявка: запрос цены, дилерство, обратный звонок", responses: { 201: { description: "создана" } } } },
+    "/api/admin/stats": { get: { summary: "Сводка для панели", security: [{ bearer: [] }], responses: { 200: { description: "ok" } } } },
+    "/api/admin/products": { get: { summary: "Товары в админке", security: [{ bearer: [] }], responses: { 200: { description: "ok" } } },
+      post: { summary: "Создать товар", security: [{ bearer: [] }], responses: { 201: { description: "создан" } } } },
+    "/api/admin/orders": { get: { summary: "Заказы", security: [{ bearer: [] }], responses: { 200: { description: "ok" } } } },
+    "/api/admin/export/prices.csv": { get: { summary: "Выгрузка прайса в CSV для Excel", security: [{ bearer: [] }], responses: { 200: { description: "csv" } } } },
+  },
+};
