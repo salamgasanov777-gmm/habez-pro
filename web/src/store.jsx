@@ -11,6 +11,10 @@ export const useApp = () => useContext(Ctx);
 const FAV_KEY = "favorites";
 const THEME_KEY = "theme";
 
+// «system» — следовать настройке телефона, остальное выбрано вручную.
+const isDark = (theme) =>
+  theme === "dark" || (theme === "system" && matchMedia("(prefers-color-scheme: dark)").matches);
+
 function readFavorites() {
   return new Set(store.get(FAV_KEY, []));
 }
@@ -21,6 +25,7 @@ export function AppProvider({ children }) {
   const [cart, setCart] = useState({ items: [], count: 0, subtotal: 0, hasOnRequest: false });
   const [favorites, setFavorites] = useState(readFavorites);
   const [theme, setTheme] = useState(() => store.get(THEME_KEY, "system"));
+  const [dark, setDark] = useState(() => isDark(store.get(THEME_KEY, "system")));
   const [toasts, setToasts] = useState([]);
   const [ready, setReady] = useState(false);
   const toastId = useRef(0);
@@ -32,11 +37,21 @@ export function AppProvider({ children }) {
   }, []);
 
   // Тема применяется к documentElement и к цвету строки состояния телефона.
+  // Признак «сейчас темно» держим в состоянии, а не вычитываем из страницы при
+  // отрисовке: там он на один шаг устаревает, и кнопка смены темы перестаёт
+  // отзываться до следующей перерисовки шапки.
   useEffect(() => {
     const system = matchMedia("(prefers-color-scheme: dark)");
     const apply = () => {
-      const dark = theme === "dark" || (theme === "system" && system.matches);
-      document.documentElement.setAttribute("data-theme", dark ? "dark" : "light");
+      const nowDark = isDark(theme);
+      document.documentElement.setAttribute("data-theme", nowDark ? "dark" : "light");
+      setDark(nowDark);
+      // В index.html цвет строки состояния привязан к настройке телефона.
+      // Выбор внутри приложения важнее: иначе при ночной теме на светлом
+      // телефоне полоска сверху остаётся светлой.
+      for (const m of document.querySelectorAll('meta[name="theme-color"]')) {
+        m.content = nowDark ? "#0f1317" : "#1f3b57";
+      }
     };
     apply();
     system.addEventListener("change", apply);
@@ -74,7 +89,7 @@ export function AppProvider({ children }) {
   }, []);
 
   const value = useMemo(() => ({
-    meta, user, cart, favorites, theme, toasts, ready,
+    meta, user, cart, favorites, theme, dark, toasts, ready,
     setTheme, toast,
 
     async login(payload, endpoint = "/api/auth/login") {
@@ -114,7 +129,7 @@ export function AppProvider({ children }) {
       if (user) api.put(`/api/account/favorites/${productId}`).catch(() => {});
     },
     isFavorite: (id) => favorites.has(id),
-  }), [meta, user, cart, favorites, theme, toasts, ready, toast]);
+  }), [meta, user, cart, favorites, theme, dark, toasts, ready, toast]);
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

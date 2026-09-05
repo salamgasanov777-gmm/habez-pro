@@ -104,7 +104,7 @@ export default function Product() {
             {p.photo && (
               <picture>
                 {p.photoWebp && <source srcSet={mediaUrl(p.photoWebp)} type="image/webp" />}
-                <img src={mediaUrl(p.photo)} alt={p.name} width="720" height="540" />
+                <img src={mediaUrl(p.photo)} alt={p.name} width="1000" height="520" />
               </picture>
             )}
           </div>

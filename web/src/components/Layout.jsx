@@ -6,7 +6,7 @@ import { Search, Cart, Star, Sun, Moon, User, Grid, Scale } from "./Icons.jsx";
 import LeadDialog from "./LeadDialog.jsx";
 
 function Header() {
-  const { meta, cart, favorites, theme, setTheme, user } = useApp();
+  const { meta, cart, favorites, dark, setTheme, user } = useApp();
   const nav = useNavigate();
   const loc = useLocation();
   const [q, setQ] = useState("");
@@ -20,8 +20,6 @@ function Header() {
     e.preventDefault();
     nav(q ? `/?search=${encodeURIComponent(q)}` : "/");
   };
-
-  const dark = document.documentElement.getAttribute("data-theme") === "dark";
 
   return (
     <header className="header">

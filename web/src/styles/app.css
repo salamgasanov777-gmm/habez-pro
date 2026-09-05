@@ -280,9 +280,13 @@ h3 { font-size: 16px; }
 
 .gallery {
   background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-lg);
-  aspect-ratio: 4 / 3; display: grid; place-items: center; overflow: hidden;
+  /* Пропорции рамки совпадают с фотографиями завода (1000x520): снимок
+     заполняет её целиком, без пустых полей сверху и снизу. */
+  aspect-ratio: 25 / 13; display: grid; place-items: center; overflow: hidden;
 }
-.gallery img { max-height: 100%; object-fit: contain; padding: 22px; }
+/* Высоту задаём явно: иначе браузер берёт её из атрибута height, картинка
+   вытягивается и низ мешка уходит за край рамки. */
+.gallery img { width: 100%; height: 100%; object-fit: contain; }
 
 .crumbs { font-size: 13px; color: var(--ink-3); padding: 16px 0 0; display: flex; gap: 7px; flex-wrap: wrap; }
 .crumbs a:hover { color: var(--accent); }
