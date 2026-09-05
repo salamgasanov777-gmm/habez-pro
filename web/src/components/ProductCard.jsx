@@ -30,7 +30,7 @@ export default function ProductCard({ product, onCompare, comparing }) {
           <picture>
             {product.photoWebp && <source srcSet={mediaUrl(product.photoWebp)} type="image/webp" />}
             {/* loading=lazy + размеры: страница не «прыгает» при подгрузке фото */}
-            <img src={mediaUrl(product.photo)} alt={product.name} loading="lazy" decoding="async" width="320" height="240" />
+            <img src={mediaUrl(product.photo)} alt={product.name} loading="lazy" decoding="async" width="1000" height="520" />
           </picture>
         )}
       </Link>

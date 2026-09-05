@@ -243,10 +243,14 @@ h3 { font-size: 16px; }
 .card:hover { transform: translateY(-3px); box-shadow: var(--shadow-2); border-color: var(--line-strong); }
 
 .card-photo {
-  aspect-ratio: 4 / 3; background: var(--surface-2) center/contain no-repeat;
+  /* Плитка чуть выше пропорций снимка (1000x520), а cover ниже срезает лишние
+     белые поля по бокам: мешок выходит примерно на пятую часть крупнее.
+     Срезается по 84 точки с каждой стороны — у самой плотной фотографии
+     запас 99, поэтому ни один мешок краем не заденет. */
+  aspect-ratio: 16 / 10; background: var(--surface-2) center/contain no-repeat;
   border-bottom: 1px solid var(--line); position: relative;
 }
-.card-photo img { width: 100%; height: 100%; object-fit: contain; padding: 12px; }
+.card-photo img { width: 100%; height: 100%; object-fit: cover; }
 .card-body { padding: 13px 15px 15px; display: flex; flex-direction: column; gap: 5px; flex: 1; }
 .card-cat { font-size: 11px; letter-spacing: .07em; text-transform: uppercase; color: var(--ink-3); }
 .card-name { font-size: 14.5px; font-weight: 570; line-height: 1.3; }
@@ -432,6 +436,10 @@ h3 { font-size: 16px; }
   .tabbar { display: flex; }
   /* Избранное, корзина и кабинет уехали в нижнюю панель — вверху они лишние. */
   .nav-actions .dup-tab { display: none; }
+  /* Плитка на телефоне узкая, и мешок занимает её целиком: бирку и звёздочку
+     уменьшаем, чтобы они не закрывали товар. */
+  .card .tag { top: 6px; left: 6px; padding: 3px 7px; font-size: 9.5px; }
+  .card .fav { top: 6px; right: 6px; width: 27px; height: 27px; }
   body { padding-bottom: 62px; }
   .grid { grid-template-columns: repeat(auto-fill, minmax(158px, 1fr)); gap: 11px; }
   .hero { padding: 20px; }
