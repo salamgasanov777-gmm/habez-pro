@@ -2,14 +2,17 @@ import { useEffect, useState } from "react";
 import { Link, NavLink, useLocation, useNavigate } from "react-router-dom";
 import { useApp } from "../store.jsx";
 import { STANDALONE } from "../lib/api.js";
-import { Search, Cart, Star, Sun, Moon, User, Grid, Scale } from "./Icons.jsx";
+import { Search, Cart, Star, Sun, Moon, User, Grid, Scale, Qr } from "./Icons.jsx";
+import ShareDialog from "./ShareDialog.jsx";
 import LeadDialog from "./LeadDialog.jsx";
+import InstallHint from "./InstallHint.jsx";
 
 function Header() {
   const { meta, cart, favorites, dark, setTheme, user } = useApp();
   const nav = useNavigate();
   const loc = useLocation();
   const [q, setQ] = useState("");
+  const [share, setShare] = useState(false);
 
   // Строка поиска отражает адрес: вернулся назад — запрос на месте.
   useEffect(() => {
@@ -22,6 +25,7 @@ function Header() {
   };
 
   return (
+    <>
     <header className="header">
       <div className="header-in">
         <Link to="/" className="logo">
@@ -47,6 +51,11 @@ function Header() {
           <button className="icon-btn" onClick={() => setTheme(dark ? "light" : "dark")} aria-label="Сменить тему">
             {dark ? <Sun /> : <Moon />}
           </button>
+          {/* Показать клиенту: код на каталог. На телефоне остаётся видимым —
+              именно там менеджер его и показывает, с экрана на экран. */}
+          <button className="icon-btn" onClick={() => setShare(true)} aria-label="Показать клиенту QR-код">
+            <Qr />
+          </button>
           {/* На узком экране эти же кнопки стоят в нижней панели — здесь их
               прячет CSS (.dup-tab), чтобы значки не дублировались. Наверху
               остаётся только смена темы: её в нижней панели нет. */}
@@ -66,6 +75,11 @@ function Header() {
         </nav>
       </div>
     </header>
+    {/* Окно живёт вне шапки: у неё размытие фона, а оно делает шапку точкой
+        отсчёта для всего, что позиционируется поверх страницы — окно уезжало
+        за верхний край экрана. */}
+    {share && <ShareDialog onClose={() => setShare(false)} />}
+    </>
   );
 }
 
@@ -137,6 +151,7 @@ export default function Layout({ children }) {
       {children}
       <Footer />
       <TabBar />
+      <InstallHint />
     </>
   );
 }
