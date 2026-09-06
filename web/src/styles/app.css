@@ -280,7 +280,22 @@ h3 { font-size: 16px; }
 /* ── Карточка товара ──────────────────────────────────────────────────── */
 
 .product { display: grid; grid-template-columns: minmax(0, 1fr) 344px; gap: 30px; align-items: start; padding: 26px 0 60px; }
-@media (max-width: 940px) { .product { grid-template-columns: 1fr; gap: 20px; } }
+/* На широком экране слева фото с названием и подробности, справа — покупка
+   во всю высоту. Раскладку задаём явно: порядок в разметке другой. */
+.product-head { grid-column: 1; grid-row: 1; }
+.product > .calc { grid-column: 1; grid-row: 2; }
+.product .buybox { grid-column: 2; grid-row: 1 / span 3; }
+.product .doc { grid-column: 1; grid-row: 3; }
+
+/* На телефоне колонка одна, и порядок берётся из разметки: фото и название,
+   сразу под ними цена с кнопками, а описание и характеристики — ниже. */
+@media (max-width: 940px) {
+  .product { grid-template-columns: 1fr; gap: 18px; }
+  .product-head, .product > .calc, .product .buybox, .product .doc { grid-column: 1; grid-row: auto; }
+  /* Липкий блок посреди страницы перекрывал бы описание при прокрутке. */
+  .product .buybox { position: static; }
+  .product .doc { margin-top: 0; }
+}
 
 .gallery {
   background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-lg);
@@ -296,6 +311,8 @@ h3 { font-size: 16px; }
 .crumbs a:hover { color: var(--accent); }
 
 .badges { display: grid; grid-template-columns: repeat(auto-fit, minmax(146px, 1fr)); gap: 9px; margin: 18px 0; }
+/* Внутри подробностей отступы задаёт сама сетка. */
+.doc > .badges { margin: 0; }
 .badge-cell {
   background: var(--surface); border: 1px solid var(--line); border-radius: var(--r);
   padding: 12px 13px;

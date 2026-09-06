@@ -99,7 +99,7 @@ export default function Product() {
       </nav>
 
       <div className="product">
-        <div>
+        <div className="product-head">
           <div className="gallery">
             {p.photo && (
               <picture>
@@ -113,49 +113,9 @@ export default function Product() {
           {p.gost && <p className="label" style={{ marginTop: 8 }}>{p.gost}</p>}
           {p.summary && <p className="muted" style={{ marginTop: 12, fontSize: 15.5, lineHeight: 1.6 }}>{p.summary}</p>}
 
-          {p.badges.length > 0 && (
-            <div className="badges">
-              {p.badges.map((b, i) => (
-                <div className="badge-cell" key={i}><b>{b.value}</b><span>{b.label}</span></div>
-              ))}
-            </div>
-          )}
-
-          <div className="doc">
-            {p.calc && <Calculator product={p} />}
-
-            {p.sections.map((s, i) => (
-              <section key={i}>
-                <h3>{s.title}</h3>
-                {String(s.text).split("\n").filter(Boolean).map((para, j) => <p key={j} style={{ marginTop: j ? 10 : 0 }}>{para}</p>)}
-              </section>
-            ))}
-
-            {p.tables.map((t, i) => (
-              <section key={i}>
-                <h3>{t.title}</h3>
-                <div className="spec">
-                  {t.rows.map(([label, value], j) => (
-                    <div className="spec-row" key={j}><div>{label}</div><div>{value}</div></div>
-                  ))}
-                </div>
-              </section>
-            ))}
-
-            {p.docs?.length > 0 && (
-              <section>
-                <h3>Документы</h3>
-                <div className="stack" style={{ gap: 8 }}>
-                  {p.docs.map((d, i) => (
-                    <a key={i} href={mediaUrl(d.url)} target="_blank" rel="noopener" className="row" style={{ color: "var(--accent)" }}>
-                      <Doc width={17} height={17} /> {d.title}
-                    </a>
-                  ))}
-                </div>
-              </section>
-            )}
-          </div>
         </div>
+
+        {p.calc && <Calculator product={p} />}
 
         <aside className="buybox">
           <div className="spread">
@@ -218,6 +178,48 @@ export default function Product() {
             {variant?.stock ? <><b>В наличии на складе</b> — {variant.stock} шт.</> : <>Отгрузка со склада завода, самовывоз и доставка по КЧР и краю.</>}
           </div>
         </aside>
+
+        <div className="doc">
+          {p.badges.length > 0 && (
+            <div className="badges">
+              {p.badges.map((b, i) => (
+                <div className="badge-cell" key={i}><b>{b.value}</b><span>{b.label}</span></div>
+              ))}
+            </div>
+          )}
+
+            {p.sections.map((s, i) => (
+              <section key={i}>
+                <h3>{s.title}</h3>
+                {String(s.text).split("\n").filter(Boolean).map((para, j) => <p key={j} style={{ marginTop: j ? 10 : 0 }}>{para}</p>)}
+              </section>
+            ))}
+
+            {p.tables.map((t, i) => (
+              <section key={i}>
+                <h3>{t.title}</h3>
+                <div className="spec">
+                  {t.rows.map(([label, value], j) => (
+                    <div className="spec-row" key={j}><div>{label}</div><div>{value}</div></div>
+                  ))}
+                </div>
+              </section>
+            ))}
+
+            {p.docs?.length > 0 && (
+              <section>
+                <h3>Документы</h3>
+                <div className="stack" style={{ gap: 8 }}>
+                  {p.docs.map((d, i) => (
+                    <a key={i} href={mediaUrl(d.url)} target="_blank" rel="noopener" className="row" style={{ color: "var(--accent)" }}>
+                      <Doc width={17} height={17} /> {d.title}
+                    </a>
+                  ))}
+                </div>
+              </section>
+          )}
+        </div>
+
       </div>
 
       {data.related.length > 0 && (
