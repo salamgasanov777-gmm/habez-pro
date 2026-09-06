@@ -13,6 +13,10 @@ REPO_URL="https://github.com/salamgasanov777-gmm/habez-pro.git"
 PRICES=""
 [ "$1" = "--prices" ] && PRICES="--with-prices"
 
+# Копия базы перед выкладкой: сохраняем то состояние, что уходит на сайт.
+echo "→ сохраняю копию базы"
+./scripts/backup-db.sh || echo "  (копия не сделалась — выкладку это не останавливает)"
+
 echo "→ выгружаю каталог из базы"
 node api/src/db/export-static.js $PRICES
 

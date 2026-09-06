@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Ежедневная копия базы в 20:00. Ставится один раз командой:
+
+    cp scripts/ru.habez.hgzpro.backup.plist ~/Library/LaunchAgents/ && launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/ru.habez.hgzpro.backup.plist
+
+  Снять расписание:
+
+    launchctl bootout gui/$(id -u)/ru.habez.hgzpro.backup && rm ~/Library/LaunchAgents/ru.habez.hgzpro.backup.plist
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>ru.habez.hgzpro.backup</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/sh</string>
+    <string>/Users/salamgasanov/Desktop/HGZ_pro/scripts/backup-db.sh</string>
+  </array>
+  <key>StartCalendarInterval</key>
+  <dict>
+    <key>Hour</key><integer>20</integer>
+    <key>Minute</key><integer>0</integer>
+  </dict>
+  <key>StandardOutPath</key>
+  <string>/Users/salamgasanov/Library/Logs/hgz-backup.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/salamgasanov/Library/Logs/hgz-backup.log</string>
+</dict>
+</plist>
