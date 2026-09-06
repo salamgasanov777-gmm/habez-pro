@@ -1,8 +1,9 @@
-import { Suspense, lazy } from "react";
-import { Routes, Route, Navigate } from "react-router-dom";
+import { Suspense, lazy, useEffect, useState } from "react";
+import { Routes, Route, Navigate, useLocation } from "react-router-dom";
 import { useApp } from "./store.jsx";
 import { STANDALONE } from "./lib/api.js";
 import Layout from "./components/Layout.jsx";
+import ProductSheet from "./components/ProductSheet.jsx";
 import Catalog from "./pages/Catalog.jsx";
 import Product from "./pages/Product.jsx";
 import Cart from "./pages/Cart.jsx";
@@ -17,6 +18,19 @@ import Account from "./pages/Account.jsx";
 // её в отдельный чанк: покупатель на телефоне не скачивает админку.
 const Admin = lazy(() => import("./admin/AdminApp.jsx"));
 
+// Шторка — приём телефонный: на широком экране карточка остаётся обычной
+// страницей в две колонки, там прятать её за шторку незачем.
+function useNarrow(max = 760) {
+  const [narrow, setNarrow] = useState(() => matchMedia(`(max-width: ${max}px)`).matches);
+  useEffect(() => {
+    const mq = matchMedia(`(max-width: ${max}px)`);
+    const on = () => setNarrow(mq.matches);
+    mq.addEventListener("change", on);
+    return () => mq.removeEventListener("change", on);
+  }, [max]);
+  return narrow;
+}
+
 function Toasts() {
   const { toasts } = useApp();
   if (!toasts.length) return null;
@@ -29,6 +43,12 @@ function Toasts() {
 
 export default function App() {
   const { ready, user } = useApp();
+  const location = useLocation();
+  const narrow = useNarrow();
+
+  // Метку ставит ссылка на товар. Если её нет — человек пришёл по прямому
+  // адресу, и карточку надо показать страницей, а не шторкой над пустотой.
+  const background = narrow ? location.state?.background : null;
 
   return (
     <>
@@ -43,7 +63,7 @@ export default function App() {
 
         <Route path="*" element={
           <Layout>
-            <Routes>
+            <Routes location={background || location}>
               <Route path="/" element={<Catalog />} />
               <Route path="/p/:slug" element={<Product />} />
               <Route path="/cart" element={<Cart />} />
@@ -55,6 +75,11 @@ export default function App() {
               <Route path="/account" element={<Account />} />
               <Route path="*" element={<div className="empty"><h3>Страница не найдена</h3><p>Проверьте адрес или вернитесь в каталог.</p></div>} />
             </Routes>
+            {background && (
+              <Routes>
+                <Route path="/p/:slug" element={<ProductSheet />} />
+              </Routes>
+            )}
           </Layout>
         } />
       </Routes>

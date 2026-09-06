@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, NavLink, useLocation, useNavigate } from "react-router-dom";
 import { useApp } from "../store.jsx";
 import { STANDALONE } from "../lib/api.js";
@@ -144,7 +144,16 @@ function Footer() {
 
 export default function Layout({ children }) {
   const loc = useLocation();
-  useEffect(() => { window.scrollTo(0, 0); }, [loc.pathname]);
+  const prev = useRef(loc);
+  // Новая страница открывается сверху. Но шторка — не новая страница: когда
+  // она выезжает и когда закрывается, каталог под ней должен остаться там же,
+  // где человек его листал.
+  useEffect(() => {
+    const opening = !!loc.state?.background;
+    const closing = !!prev.current.state?.background;
+    if (!opening && !closing) window.scrollTo(0, 0);
+    prev.current = loc;
+  }, [loc]);
   return (
     <>
       <Header />

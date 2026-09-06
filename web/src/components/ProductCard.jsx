@@ -1,4 +1,4 @@
-import { Link } from "react-router-dom";
+import ProductLink from "./ProductLink.jsx";
 import { useApp } from "../store.jsx";
 import { money, mediaUrl } from "../lib/format.js";
 import { Star } from "./Icons.jsx";
@@ -25,7 +25,7 @@ export default function ProductCard({ product, onCompare, comparing }) {
         </span>
       )}
 
-      <Link to={`/p/${product.slug}`} className="card-photo">
+      <ProductLink slug={product.slug} className="card-photo">
         {product.photo && (
           <picture>
             {product.photoWebp && <source srcSet={mediaUrl(product.photoWebp)} type="image/webp" />}
@@ -33,11 +33,11 @@ export default function ProductCard({ product, onCompare, comparing }) {
             <img src={mediaUrl(product.photo)} alt={product.name} loading="lazy" decoding="async" width="1000" height="520" />
           </picture>
         )}
-      </Link>
+      </ProductLink>
 
       <div className="card-body">
         <div className="card-cat">{product.category}</div>
-        <Link to={`/p/${product.slug}`} className="card-name">{product.name}</Link>
+        <ProductLink slug={product.slug} className="card-name">{product.name}</ProductLink>
 
         <div className="card-foot">
           {showPrices && variant && !variant.priceOnRequest ? (

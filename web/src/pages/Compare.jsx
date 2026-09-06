@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
+import ProductLink from "../components/ProductLink.jsx";
 import * as api from "../lib/api.js";
 import { store } from "../lib/storage.js";
 import { Close } from "../components/Icons.jsx";
@@ -41,7 +42,7 @@ export default function Compare() {
                 {data.products.map((p) => (
                   <th key={p.id} style={{ minWidth: 160 }}>
                     <div className="spread" style={{ alignItems: "flex-start" }}>
-                      <Link to={`/p/${p.slug}`} style={{ textTransform: "none", letterSpacing: 0, fontSize: 13.5, fontWeight: 600, color: "var(--ink)" }}>{p.name}</Link>
+                      <ProductLink slug={p.slug} style={{ textTransform: "none", letterSpacing: 0, fontSize: 13.5, fontWeight: 600, color: "var(--ink)" }}>{p.name}</ProductLink>
                       <button className="icon-btn" style={{ width: 24, height: 24 }} onClick={() => setIds(ids.filter((x) => x !== p.id))} aria-label="Убрать">
                         <Close width={14} height={14} />
                       </button>

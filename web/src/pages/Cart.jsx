@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import ProductLink from "../components/ProductLink.jsx";
 import { useApp } from "../store.jsx";
 import { money, plural, mediaUrl } from "../lib/format.js";
 import LeadDialog from "../components/LeadDialog.jsx";
@@ -34,9 +35,9 @@ export default function Cart() {
         <div>
           {cart.items.map((i) => (
             <div className="cart-line" key={i.id}>
-              <Link to={`/p/${i.slug}`} className="ph" style={{ backgroundImage: i.photo ? `url('${mediaUrl(i.photo)}')` : "none" }} />
+              <ProductLink slug={i.slug} className="ph" style={{ backgroundImage: i.photo ? `url('${mediaUrl(i.photo)}')` : "none" }} />
               <div>
-                <Link to={`/p/${i.slug}`} style={{ fontWeight: 550 }}>{i.name}</Link>
+                <ProductLink slug={i.slug} style={{ fontWeight: 550 }}>{i.name}</ProductLink>
                 <div className="dim" style={{ fontSize: 13, marginTop: 2 }}>{i.unit}</div>
                 {i.priceOnRequest
                   ? <div style={{ color: "var(--accent)", fontSize: 13.5, marginTop: 4 }}>Цену уточнит менеджер</div>

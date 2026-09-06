@@ -415,6 +415,38 @@ h3 { font-size: 16px; }
   @keyframes slideup { from { transform: translateY(100%); } }
 }
 
+/* ── Карточка товара шторкой ─────────────────────────────────────────── */
+
+.sheet-backdrop {
+  position: fixed; inset: 0; z-index: 58;
+  background: rgba(8, 12, 16, .5); animation: fade .22s ease;
+}
+.sheet {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 59;
+  height: 90dvh; display: flex; flex-direction: column;
+  background: var(--paper); box-shadow: var(--shadow-3);
+  border-radius: var(--r-xl) var(--r-xl) 0 0;
+  animation: sheet-up .3s cubic-bezier(.2, .8, .3, 1);
+  will-change: transform;
+}
+@keyframes sheet-up { from { transform: translateY(100%); } }
+
+/* Полоска-ручка: за неё шторку можно тянуть в любом месте карточки,
+   не дожидаясь, пока содержимое пролистается в начало. */
+.sheet-grip { flex: none; padding: 10px 0 7px; display: grid; place-items: center; touch-action: none; }
+.sheet-grip i { width: 42px; height: 4px; border-radius: 2px; background: var(--line-strong); }
+
+.sheet-close {
+  position: absolute; top: 6px; right: 8px; z-index: 2;
+  background: var(--surface); border: 1px solid var(--line);
+}
+
+.sheet-scroll { flex: 1; overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; }
+/* Внутри шторки страница уже не нужна во всю ширину экрана с полями. */
+.sheet-scroll .page { max-width: none; padding: 0 16px; }
+.sheet-scroll .crumbs { padding-top: 2px; }
+.sheet-scroll .product { padding-top: 14px; padding-bottom: 28px; }
+
 /* ── Подсказка про установку ─────────────────────────────────────────── */
 
 .install-hint {
