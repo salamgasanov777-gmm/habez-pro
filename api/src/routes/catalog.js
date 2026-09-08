@@ -39,6 +39,7 @@ export default async function catalogRoutes(app) {
         minOrder: settings.minOrder || 0,
         deliveryCost: settings.deliveryCost ?? null,
         checkoutMode: settings.checkoutMode || "order", // order | quote
+    site: settings.site || null,
       },
       categories: categories.filter((c) => c.count > 0),
       tasks: TASKS,

@@ -67,6 +67,7 @@ const payload = {
     minOrder: settings.minOrder || 0,
     deliveryCost: settings.deliveryCost ?? null,
     checkoutMode: withPrices ? (settings.checkoutMode || "order") : "quote",
+    site: settings.site || null,
     // Номер для заявок ставится осознанно в настройках. Подставлять сюда
     // телефон из карточки компании нельзя: там может лежать заглушка,
     // и заявки уйдут в никуда.

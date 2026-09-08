@@ -131,8 +131,15 @@ function Footer() {
         <div>
           <div className="label" style={{ marginBottom: 8 }}>Связь</div>
           <div className="stack" style={{ gap: 6, fontSize: 14 }}>
-            <a href={`tel:${meta?.tenant?.phone}`}>{meta?.tenant?.phone}</a>
-            <a href={`mailto:${meta?.tenant?.email}`} className="muted">{meta?.tenant?.email}</a>
+            {/* Показываем только заполненное: телефона отдела продаж завод пока
+                не дал, а выдуманный номер в подвале хуже, чем его отсутствие. */}
+            {meta?.tenant?.phone && <a href={`tel:${meta.tenant.phone}`}>{meta.tenant.phone}</a>}
+            {meta?.tenant?.email && <a href={`mailto:${meta.tenant.email}`} className="muted">{meta.tenant.email}</a>}
+            {meta?.settings?.site && (
+              <a href={meta.settings.site} target="_blank" rel="noopener" className="muted">
+                {meta.settings.site.replace(/^https?:\/\//, "")}
+              </a>
+            )}
             <button className="btn btn-sm" style={{ justifySelf: "start", marginTop: 4 }} onClick={() => setLead(true)}>Запросить прайс</button>
           </div>
         </div>
