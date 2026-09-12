@@ -242,10 +242,10 @@ export default async function adminRoutes(app) {
     const where = ["tenant_id=?"];
     const params = [req.tenant.id];
     if (q.status && ORDER_STATUSES.includes(q.status)) { where.push("status=?"); params.push(q.status); }
-    if (q.search) { where.push("(number LIKE ? OR customer_name LIKE ? OR customer_phone LIKE ?)"); params.push(`%${q.search}%`, `%${q.search}%`, `%${q.search}%`); }
+    if (q.search) { where.push("(number LIKE ? OR customer_name LIKE ? OR customer_phone LIKE ? OR company LIKE ?)"); params.push(`%${q.search}%`, `%${q.search}%`, `%${q.search}%`, `%${q.search}%`); }
     const total = get(`SELECT COUNT(*) AS n FROM orders WHERE ${where.join(" AND ")}`, ...params).n;
     const items = all(
-      `SELECT id, number, status, payment_status, customer_name, customer_phone, total, created_at, delivery_type
+      `SELECT id, number, status, payment_status, customer_name, customer_kind, customer_phone, company, total, created_at, delivery_type
          FROM orders WHERE ${where.join(" AND ")} ORDER BY id DESC LIMIT ? OFFSET ?`,
       ...params, q.limit, (q.page - 1) * q.limit);
     return { items, total, page: q.page, pages: Math.ceil(total / q.limit) };

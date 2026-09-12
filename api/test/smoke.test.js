@@ -77,11 +77,13 @@ test("корзина, заказ и оплата проходят целиком
   const headers = { cookie: `hgz_cart=${cookie.value}` };
   const orderRes = await app.inject({
     method: "POST", url: "/api/orders", headers,
-    payload: { customer: { name: "Пров Прорабов", phone: "+79381234567", deliveryType: "pickup" } },
+    payload: { customer: { name: "Пров Прорабов", phone: "+79381234567", deliveryType: "pickup", kind: "shop", company: "Стройка" } },
   });
   assert.equal(orderRes.statusCode, 201);
   const order = json(orderRes);
   assert.match(order.number, /^ХГЗ-\d{4}-\d{4}$/);
+  assert.equal(order.customer.kind, "shop", "менеджер видит, что заказал магазин");
+  assert.equal(order.customer.company, "Стройка");
   assert.equal(order.total, cart.subtotal);
 
   const pay = json(await app.inject({ method: "POST", url: "/api/payments/create", payload: { orderNumber: order.number } }));

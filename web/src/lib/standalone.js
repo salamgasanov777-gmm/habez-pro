@@ -78,6 +78,9 @@ function cartView(data) {
 // ── Заявки ──────────────────────────────────────────────────────────────────
 // Отправить их с сайта без сервера некуда, поэтому заявка сохраняется у
 // покупателя и открывается готовым сообщением в WhatsApp менеджеру.
+// Кто заказывает — в тексте заявки менеджеру это видно сразу.
+const WHO = { person: "частное лицо", foreman: "прораб", shop: "магазин", company: "организация" };
+
 function saveLead(body, data) {
   const leads = store.get("leads", []);
   const lead = { ...body, id: Date.now(), createdAt: new Date().toISOString() };
@@ -85,7 +88,7 @@ function saveLead(body, data) {
 
   const lines = [
     body.kind === "dealer" ? "Заявка на дилерство" : "Заявка с сайта",
-    `${body.name}, ${body.phone}`,
+    `${body.name}${WHO[body.who] ? ` (${WHO[body.who]})` : ""}, ${body.phone}`,
     body.company ? `Компания: ${body.company}` : "",
     body.message || "",
   ];
@@ -226,7 +229,7 @@ export async function handleLocal(path, { method = "GET", body } = {}) {
   if (url === "/api/orders" && method === "POST") {
     // Без сервера заказ не примешь: платить некуда и менеджеру он не уйдёт.
     // Поэтому оформление собирает то же самое как заявку в WhatsApp.
-    const res = saveLead({ ...body.customer, kind: "quote", withCart: true }, data);
+    const res = saveLead({ ...body.customer, who: body.customer.kind, kind: "quote", withCart: true }, data);
     writeCart([]);
     return { ...res, standalone: true, number: null };
   }

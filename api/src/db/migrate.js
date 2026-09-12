@@ -27,11 +27,18 @@ const STEPS = [
   ["2026-09-add-products-updated-trigger", `
     CREATE TRIGGER IF NOT EXISTS trg_products_updated AFTER UPDATE ON products
     BEGIN UPDATE products SET updated_at = datetime('now') WHERE id = NEW.id; END;`],
+  // Кто заказывает: частник, прораб, магазин, организация. Менеджеру это
+  // важно видеть сразу, а не угадывать по заполненной графе «фирма».
+  // На свежей базе колонку уже создала схема — тогда шаг просто отмечается.
+  ["2026-09-orders-customer-kind", () => {
+    const has = db.prepare("PRAGMA table_info(orders)").all().some((c) => c.name === "customer_kind");
+    if (!has) db.exec("ALTER TABLE orders ADD COLUMN customer_kind TEXT NOT NULL DEFAULT 'person'");
+  }],
 ];
 
 for (const [name, sql] of STEPS) {
   if (get("SELECT name FROM migrations WHERE name=?", name)) continue;
-  db.exec(sql);
+  typeof sql === "function" ? sql() : db.exec(sql);
   run("INSERT INTO migrations (name) VALUES (?)", name);
   console.log(`[migrate] ${name}`);
 }

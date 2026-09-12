@@ -11,7 +11,13 @@ export default function Checkout() {
   const [form, setForm] = useState({
     name: user?.name || "", phone: user?.phone ? phoneMask(user.phone) : "", email: user?.email || "",
     company: user?.company || "", inn: "", deliveryType: "pickup", deliveryAddress: "", comment: "",
+    // Кто заказывает — менеджеру это видно сразу в списке и в уведомлении.
+    kind: user?.company ? "company" : "person",
   });
+  const KINDS = [
+    ["person", "Частное лицо"], ["foreman", "Прораб, бригада"], ["shop", "Магазин"], ["company", "Организация"],
+  ];
+  const needsCompany = form.kind === "shop" || form.kind === "company";
   const [promo, setPromo] = useState("");
   const [discount, setDiscount] = useState(0);
   const [payNow, setPayNow] = useState(true);
@@ -63,6 +69,12 @@ export default function Checkout() {
         <div className="stack" style={{ gap: 18 }}>
           <section className="panel stack">
             <h3>Кто получает</h3>
+            <div className="row" style={{ flexWrap: "wrap", gap: 8 }}>
+              {KINDS.map(([key, label]) => (
+                <button type="button" key={key} className={`chip ${form.kind === key ? "on" : ""}`}
+                  onClick={() => setForm({ ...form, kind: key })}>{label}</button>
+              ))}
+            </div>
             <label className="field"><span>Имя и фамилия</span>
               <input className="input" required minLength={2} value={form.name} onChange={set("name")} /></label>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
@@ -74,9 +86,9 @@ export default function Checkout() {
           </section>
 
           <section className="panel stack">
-            <h3>Организация <span className="dim" style={{ fontWeight: 400, fontSize: 13 }}>— если нужен счёт и закрывающие документы</span></h3>
+            <h3>{needsCompany ? "Магазин или организация" : "Организация"} <span className="dim" style={{ fontWeight: 400, fontSize: 13 }}>{needsCompany ? "— как называется" : "— если нужен счёт и закрывающие документы"}</span></h3>
             <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 12 }}>
-              <label className="field"><span>Название</span><input className="input" value={form.company} onChange={set("company")} /></label>
+              <label className="field"><span>Название</span><input className="input" required={needsCompany} value={form.company} onChange={set("company")} /></label>
               <label className="field"><span>ИНН</span><input className="input" inputMode="numeric" maxLength={12} value={form.inn} onChange={set("inn")} /></label>
             </div>
           </section>

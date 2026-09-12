@@ -78,7 +78,6 @@ export default function Cart() {
       </div>
 
       {lead && <LeadDialog kind="quote" withCart onClose={() => setLead(false)} />}
-      <style>{`@media (max-width: 860px) { .cart-layout { grid-template-columns: 1fr !important; } }`}</style>
     </main>
   );
 }

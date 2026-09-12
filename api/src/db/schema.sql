@@ -231,6 +231,7 @@ CREATE TABLE IF NOT EXISTS orders (
   customer_name TEXT NOT NULL,
   customer_phone TEXT NOT NULL,
   customer_email TEXT,
+  customer_kind TEXT NOT NULL DEFAULT 'person', -- person | foreman | shop | company
   company       TEXT,
   inn           TEXT,
   delivery_type TEXT NOT NULL DEFAULT 'pickup',-- pickup | delivery

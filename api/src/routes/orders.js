@@ -9,6 +9,7 @@ import { forbidden, notFound } from "../lib/errors.js";
 const customerSchema = z.object({
   name: z.string().min(2).max(120),
   phone: z.string().min(10).max(20),
+  kind: z.enum(["person", "foreman", "shop", "company"]).default("person"),
   email: z.string().email().optional().or(z.literal("")),
   company: z.string().max(200).optional(),
   inn: z.string().max(12).optional(),
@@ -41,8 +42,10 @@ export default async function orderRoutes(app) {
       customer: body.customer, deliveryCost, promoCode: body.promoCode || null,
     });
 
+    const KIND = { person: "частное лицо", foreman: "прораб", shop: "магазин", company: "организация" };
+    const who = [KIND[order.customer.kind] || "", order.customer.company].filter(Boolean).join(", ");
     await notifyManagers(`Новый заказ ${order.number}`, [
-      `${order.customer.name}, ${order.customer.phone}`,
+      `${order.customer.name}${who ? ` (${who})` : ""}, ${order.customer.phone}`,
       ...order.items.map((i) => `• ${i.name} — ${i.qty} × ${rub(i.price)}`),
       `Итого: ${rub(order.total)}`,
       order.delivery.type === "delivery" ? `Доставка: ${order.delivery.address}` : "Самовывоз",

@@ -7,6 +7,8 @@ import Modal from "../components/Modal.jsx";
 
 const FLOW = ["new", "confirmed", "paid", "shipping", "done", "cancelled"];
 
+const KIND = { person: "частник", foreman: "прораб", shop: "магазин", company: "организация" };
+
 export default function OrdersAdmin() {
   const [params, setParams] = useSearchParams();
   const [data, setData] = useState(null);
@@ -39,7 +41,13 @@ export default function OrdersAdmin() {
               {data.items.map((o) => (
                 <tr key={o.id} onClick={() => api.get(`/api/admin/orders/${o.id}`).then(setOpen)} style={{ cursor: "pointer" }}>
                   <td className="num" style={{ fontWeight: 600 }}>{o.number}</td>
-                  <td>{o.customer_name}<div className="dim" style={{ fontSize: 12.5 }}>{o.customer_phone}</div></td>
+                  <td>
+                    {o.customer_name}
+                    {o.company && <div style={{ fontSize: 13 }}>{o.company}</div>}
+                    <div className="dim" style={{ fontSize: 12.5 }}>
+                      {KIND[o.customer_kind] && <span className="who">{KIND[o.customer_kind]}</span>}{o.customer_phone}
+                    </div>
+                  </td>
                   <td className="num">{money(o.total)}</td>
                   <td className="muted">{o.delivery_type === "delivery" ? "доставка" : "самовывоз"}</td>
                   <td><span className={`pill ${o.status}`}>{ORDER_LABEL[o.status]}</span></td>
@@ -78,6 +86,7 @@ function OrderCard({ order, onClose, onChanged }) {
             <p style={{ margin: "4px 0" }}>{order.customer.name}<br />
               <a href={`tel:${order.customer.phone}`} style={{ color: "var(--accent)" }}>{order.customer.phone}</a><br />
               <span className="dim">{order.customer.email}</span></p>
+            {KIND[order.customer.kind] && <p className="label" style={{ margin: "2px 0 6px" }}>{KIND[order.customer.kind]}</p>}
             {order.customer.company && <p className="muted" style={{ fontSize: 13.5 }}>{order.customer.company}{order.customer.inn && `, ИНН ${order.customer.inn}`}</p>}
           </div>
           <div>

@@ -387,6 +387,11 @@ h3 { font-size: 16px; }
   background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-lg);
   padding: 20px; display: grid; gap: 11px; position: sticky; top: calc(var(--header-h) + 14px);
 }
+/* На телефоне сводка встаёт под форму, а не липнет сверху поверх неё. */
+@media (max-width: 860px) {
+  .cart-layout { grid-template-columns: 1fr !important; }
+  .summary { position: static; }
+}
 .sum-row { display: flex; justify-content: space-between; font-size: 14.5px; }
 .sum-row.total { font-size: 20px; font-weight: 650; padding-top: 11px; border-top: 1px solid var(--line); }
 .sum-row.total span:last-child { font-family: var(--mono); letter-spacing: -.02em; }
@@ -572,6 +577,13 @@ h3 { font-size: 16px; }
   border-radius: var(--r); padding: 12px 15px; font-size: 13.5px; color: var(--ink-2);
 }
 .notice b { color: var(--ink); }
+
+/* Кто заказал — короткая метка перед телефоном в списке заказов. */
+.who {
+  display: inline-block; margin-right: 7px; padding: 1px 7px; border-radius: 6px;
+  background: var(--accent-soft); color: var(--accent); font-size: 11px; font-weight: 600;
+  letter-spacing: .03em; text-transform: uppercase;
+}
 
 /* ── Панель управления ────────────────────────────────────────────────── */
 
