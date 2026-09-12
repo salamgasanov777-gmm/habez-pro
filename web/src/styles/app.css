@@ -560,6 +560,7 @@ h3 { font-size: 16px; }
      уменьшаем, чтобы они не закрывали товар. */
   .card .tag { top: 6px; left: 6px; padding: 3px 7px; font-size: 9.5px; }
   .card .fav { top: 6px; right: 6px; width: 27px; height: 27px; }
+  .sort-select { display: none; }
   body { padding-bottom: 62px; }
   .grid { grid-template-columns: repeat(auto-fill, minmax(158px, 1fr)); gap: 11px; }
   .hero { padding: 20px; }

@@ -95,7 +95,9 @@ export default function Catalog() {
               {t.label}
             </button>
           ))}
-          <select className="select" style={{ width: "auto", marginLeft: "auto" }} value={filters.sort} onChange={(e) => setParam("sort", e.target.value)}>
+          {/* Сортировка на телефоне не нужна — владелец её не использует, а
+              выглядит она там чужеродно. На широком экране остаётся. */}
+          <select className="select sort-select" style={{ width: "auto", marginLeft: "auto" }} value={filters.sort} onChange={(e) => setParam("sort", e.target.value)}>
             {SORTS.map((s) => <option key={s.key} value={s.key}>{s.label}</option>)}
           </select>
         </div>
