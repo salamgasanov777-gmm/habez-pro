@@ -3,7 +3,7 @@
 import { z } from "zod";
 import { createHash } from "node:crypto";
 import { all, get, insert, run } from "../db/index.js";
-import { decorate, ftsQuery, productBySlugOrId } from "../services/catalog.js";
+import { decorate, ftsQuery, productBySlugOrId, newArrivals } from "../services/catalog.js";
 import { notFound } from "../lib/errors.js";
 
 // Подбор по задаче: те же пять сценариев, что в каталоге завода.
@@ -43,6 +43,7 @@ export default async function catalogRoutes(app) {
       },
       categories: categories.filter((c) => c.count > 0),
       tasks: TASKS,
+      newArrivals: newArrivals(req.tenant.id),
       total: get("SELECT COUNT(*) AS n FROM products WHERE tenant_id=? AND status='published'", req.tenant.id).n,
     };
     const etag = etagFor(payload);

@@ -123,6 +123,7 @@ export async function handleLocal(path, { method = "GET", body } = {}) {
       settings: { ...data.settings, standalone: true },
       categories: data.categories,
       tasks: data.tasks,
+      newArrivals: data.newArrivals || [],
       total: data.products.length,
     };
   }

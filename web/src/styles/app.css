@@ -214,21 +214,56 @@ h3 { font-size: 16px; }
 
 /* ── Витрина ──────────────────────────────────────────────────────────── */
 
-.hero {
-  margin: 22px 0 6px; padding: 26px 28px; border-radius: var(--r-lg);
-  background:
-    radial-gradient(120% 140% at 100% 0%, rgba(185,114,42,.14), transparent 55%),
-    linear-gradient(140deg, var(--accent), #2b5177);
-  color: #fff; position: relative; overflow: hidden;
+/* ── Первый экран ─────────────────────────────────────────────────────── */
+
+.home { margin: 14px 0 4px; }
+.brand-line {
+  display: flex; align-items: center; gap: 8px; margin: 0 0 12px;
+  font-size: 12px; color: var(--ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-.hero h1 { font-size: clamp(22px, 3.2vw, 32px); max-width: 18ch; }
-.hero p { margin: 8px 0 0; max-width: 52ch; color: rgba(255,255,255,.82); font-size: 14.5px; }
-.hero-stats { display: flex; gap: 26px; margin-top: 18px; flex-wrap: wrap; }
-.hero-stats b { display: block; font-size: 21px; font-family: var(--mono); font-weight: 600; }
-.hero-stats span { font-size: 11.5px; letter-spacing: .07em; text-transform: uppercase; color: rgba(255,255,255,.62); }
+.brand-line svg { color: var(--ok); flex: none; }
+
+/* Плитки подбора по задаче: три в ряд на телефоне, все в ряд на широком. */
+.tasks { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 9px; }
+@media (min-width: 620px) { .tasks { grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 10px; } }
+.task-tile {
+  display: flex; flex-direction: column; align-items: center; gap: 7px;
+  padding: 12px 8px 11px; border-radius: var(--r); cursor: pointer;
+  background: var(--surface); border: 1px solid var(--line); color: var(--ink);
+  font: inherit; font-size: 12.5px; font-weight: 560; line-height: 1.2; text-align: center;
+  transition: border-color .16s ease, background .16s ease, transform .12s ease;
+}
+.task-tile:hover { border-color: var(--line-strong); }
+.task-tile:active { transform: translateY(1px); }
+.task-icon {
+  width: 40px; height: 40px; border-radius: 12px; display: grid; place-items: center;
+  background: var(--accent-soft); color: var(--accent);
+}
+.task-tile.on { border-color: var(--gold); background: var(--gold-soft); }
+.task-tile.on .task-icon { background: var(--gold); color: #fff; }
+/* «Все товары» — спокойнее остальных: это выход, а не выбор. */
+.task-tile.all { border-style: dashed; border-color: var(--line-strong); color: var(--ink-2); }
+.task-tile.all .task-icon { background: var(--paper-deep); color: var(--ink-2); }
+.task-tile.all.on { border-style: solid; border-color: var(--line); background: var(--surface); }
+.task-tile.all.on .task-icon { background: var(--accent-soft); color: var(--accent); }
+
+/* Новое в каталоге — узкая лента, листается пальцем. */
+.new-row { display: flex; gap: 9px; overflow-x: auto; scrollbar-width: none; margin: 0 -20px; padding: 0 20px 4px; }
+.new-row::-webkit-scrollbar { display: none; }
+.new-item {
+  flex: none; width: 124px; background: var(--surface); border: 1px solid var(--line);
+  border-radius: 12px; overflow: hidden; display: flex; flex-direction: column;
+}
+.new-photo { display: block; aspect-ratio: 16 / 9; background: var(--surface-2); border-bottom: 1px solid var(--line); overflow: hidden; }
+.new-photo img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.new-name { padding: 7px 9px 8px; font-size: 11.5px; font-weight: 540; line-height: 1.25; color: var(--ink); }
 
 .toolbar { display: flex; align-items: center; gap: 10px; margin: 20px 0 14px; flex-wrap: wrap; }
 .toolbar .count { font-size: 13.5px; color: var(--ink-3); margin-right: auto; }
+/* На главной в панели только сортировка, а на телефоне и её нет — не
+   держим под пустую строку целый отступ. */
+.toolbar.quiet { margin: 10px 0 4px; }
+@media (max-width: 760px) { .toolbar.quiet { margin: 0; } }
 
 .grid {
   display: grid; gap: 14px;
@@ -568,7 +603,6 @@ h3 { font-size: 16px; }
   .sort-select { display: none; }
   body { padding-bottom: 62px; }
   .grid { grid-template-columns: repeat(auto-fill, minmax(158px, 1fr)); gap: 11px; }
-  .hero { padding: 20px; }
   .doc section { padding: 16px; }
 }
 
@@ -649,4 +683,5 @@ h3 { font-size: 16px; }
    читается как вклеенное фото в паспорте, а не как ошибка вёрстки. */
 :root[data-theme="dark"] .card-photo,
 :root[data-theme="dark"] .gallery,
+:root[data-theme="dark"] .new-photo,
 :root[data-theme="dark"] .cart-line .ph { background-color: #edeae4; }

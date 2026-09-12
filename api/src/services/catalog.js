@@ -99,6 +99,21 @@ export function decorate(tenantId, products, user, { full = false } = {}) {
 
 // FTS5 требует экранирования: пользовательский ввод не должен становиться
 // синтаксисом запроса. Каждое слово — префиксный поиск.
+// «Новое в каталоге» на главной. Новым считается то, что добавили после
+// первого наполнения (первый день жизни каталога не в счёт — тогда завезли
+// всё сразу) и не раньше месяца назад. Когда новинок нет, список пуст,
+// и полоса на главной не показывается.
+export function newArrivals(tenantId, limit = 6) {
+  return all(
+    `SELECT p.id, p.slug, p.name, p.short_name AS shortName, m.url AS photo, m.url_webp AS photoWebp
+       FROM products p LEFT JOIN media m ON m.product_id = p.id AND m.position = 0
+      WHERE p.tenant_id = ? AND p.status = 'published'
+        AND p.created_at > (SELECT datetime(MIN(created_at), '+1 day') FROM products WHERE tenant_id = ? AND status = 'published')
+        AND p.created_at > datetime('now', '-30 days')
+      ORDER BY p.created_at DESC, p.position LIMIT ?`,
+    tenantId, tenantId, limit);
+}
+
 export function ftsQuery(q) {
   const terms = String(q)
     .toLowerCase()

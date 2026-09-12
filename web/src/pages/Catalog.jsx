@@ -5,7 +5,12 @@ import * as api from "../lib/api.js";
 import { store } from "../lib/storage.js";
 import ProductCard from "../components/ProductCard.jsx";
 import { plural } from "../lib/format.js";
-import { Scale } from "../components/Icons.jsx";
+import { Scale, Bath, Room, Facade, Floor, Plinth, Check, Grid } from "../components/Icons.jsx";
+import ProductLink from "../components/ProductLink.jsx";
+import { mediaUrl } from "../lib/format.js";
+
+// Значок к каждой задаче подбора; ключи приходят с сервера.
+const TASK_ICON = { wet: Bath, dry: Room, facade: Facade, "floor-heat": Floor, plinth: Plinth };
 
 const SORTS = [
   { key: "default", label: "По разделам" },
@@ -75,26 +80,59 @@ export default function Catalog() {
       </div>
 
       <main className="page">
+        {/* Первый экран: вместо рассказа о заводе — то, с чего покупатель
+            начинает. Подбор по задаче плитками, ниже новинки, дальше товары.
+            Прячется, когда человек уже ищет или выбрал раздел. */}
         {!filters.search && !filters.category && (
-          <section className="hero">
-            <h1>Продукция завода с паспортными характеристиками</h1>
-            <p>Гипсовые и цементные смеси, шпаклёвки, клеи, грунтовки. Расход считается прямо в карточке, заказ уходит менеджеру без звонка.</p>
-            <div className="hero-stats">
-              <div><b>{meta?.total ?? "—"}</b><span>позиций</span></div>
-              <div><b>{meta?.categories?.length ?? "—"}</b><span>разделов</span></div>
-              <div><b>ГОСТ</b><span>заводские данные</span></div>
+          <section className="home">
+            <p className="brand-line"><Check width={14} height={14} /> Официальный каталог Хабезского гипсового завода</p>
+            <div className="tasks">
+              {(meta?.tasks || []).map((t) => {
+                const Icon = TASK_ICON[t.key] || Grid;
+                const on = filters.task === t.key;
+                return (
+                  <button key={t.key} className={`task-tile ${on ? "on" : ""}`} onClick={() => setParam("task", on ? "" : t.key)}>
+                    <span className="task-icon"><Icon width={22} height={22} /></span>
+                    <span>{t.label}</span>
+                  </button>
+                );
+              })}
+              <button className={`task-tile all ${!filters.task ? "on" : ""}`} onClick={() => setParam("task", "")}>
+                <span className="task-icon"><Grid width={22} height={22} /></span>
+                <span>Все {plural(meta?.total ?? 0, "товар", "товара", "товаров")}</span>
+              </button>
             </div>
+
+            {meta?.newArrivals?.length > 0 && !filters.task && (
+              <>
+                <div className="label" style={{ margin: "18px 0 8px" }}>Новое в каталоге</div>
+                <div className="new-row">
+                  {meta.newArrivals.map((n) => (
+                    <ProductLink key={n.id} slug={n.slug} className="new-item">
+                      <span className="new-photo">
+                        {n.photo && <img src={mediaUrl(n.photoWebp || n.photo)} alt="" loading="lazy" />}
+                      </span>
+                      <span className="new-name">{n.shortName || n.name}</span>
+                    </ProductLink>
+                  ))}
+                </div>
+              </>
+            )}
           </section>
         )}
 
-        <div className="toolbar">
-          <span className="label" style={{ marginRight: 4 }}>Подбор по задаче</span>
-          {(meta?.tasks || []).map((t) => (
-            <button key={t.key} className={`chip task ${filters.task === t.key ? "on" : ""}`}
-              onClick={() => setParam("task", filters.task === t.key ? "" : t.key)}>
-              {t.label}
-            </button>
-          ))}
+        <div className={`toolbar ${filters.search || filters.category ? "" : "quiet"}`}>
+          {(filters.search || filters.category) && (
+            <>
+              <span className="label" style={{ marginRight: 4 }}>Подбор по задаче</span>
+              {(meta?.tasks || []).map((t) => (
+                <button key={t.key} className={`chip task ${filters.task === t.key ? "on" : ""}`}
+                  onClick={() => setParam("task", filters.task === t.key ? "" : t.key)}>
+                  {t.label}
+                </button>
+              ))}
+            </>
+          )}
           {/* Сортировка на телефоне не нужна — владелец её не использует, а
               выглядит она там чужеродно. На широком экране остаётся. */}
           <select className="select sort-select" style={{ width: "auto", marginLeft: "auto" }} value={filters.sort} onChange={(e) => setParam("sort", e.target.value)}>
