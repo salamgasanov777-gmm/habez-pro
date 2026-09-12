@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import qrcode from "qrcode-generator";
 import Modal from "./Modal.jsx";
 import { useApp } from "../store.jsx";
-import { PUBLIC_URL, PUBLIC_URL_SHORT } from "../lib/site.js";
+import { PUBLIC_URL } from "../lib/site.js";
 
 // Код всегда чёрный на белом, независимо от темы приложения. Инверсию читают
 // не все камеры, а этот код показывают с экрана на экран — надёжность здесь
@@ -67,17 +67,11 @@ export default function ShareDialog({ onClose }) {
           <QrCode text={PUBLIC_URL} />
         </div>
 
-        <p className="share-lead">
-          Клиент наводит камеру телефона — и каталог открывается у него.
-          Как сохранить его иконкой, приложение подскажет ему само.
-        </p>
-
-        <div className="share-url">
-          <span className="num">{PUBLIC_URL_SHORT}</span>
-          <button className="btn btn-sm" onClick={copy}>
-            {copied ? "Скопировано" : "Скопировать"}
-          </button>
-        </div>
+        {/* Только код и кнопка: адрес текстом менеджеру не нужен — он либо
+            показывает экран, либо отправляет ссылку кнопкой. */}
+        <button className="btn btn-primary btn-lg btn-block" onClick={copy}>
+          {copied ? "Ссылка скопирована" : "Скопировать ссылку"}
+        </button>
 
       </div>
     </Modal>
