@@ -23,6 +23,7 @@ import paymentRoutes from "./routes/payments.js";
 import leadRoutes from "./routes/leads.js";
 import accountRoutes from "./routes/account.js";
 import adminRoutes from "./routes/admin.js";
+import pushRoutes from "./routes/push.js";
 import { openapi } from "./openapi.js";
 
 export async function build() {
@@ -93,6 +94,7 @@ export async function build() {
   await app.register(leadRoutes);
   await app.register(accountRoutes);
   await app.register(adminRoutes);
+  await app.register(pushRoutes);
 
   // Одним процессом можно отдавать и собранный фронтенд — так проще
   // разворачивать на одном небольшом сервере. Обработчик «не найдено»

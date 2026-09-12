@@ -37,7 +37,7 @@ export default async function leadRoutes(app) {
       body.company ? `Компания: ${body.company}` : "",
       body.message || "",
       ...(payload.cart || []).map((i) => `• ${i.name} — ${i.qty}`),
-    ].filter(Boolean), req.log);
+    ].filter(Boolean), req.log, { tenantId: req.tenant.id, url: "/admin/leads" });
 
     reply.code(201);
     return { id, ok: true };

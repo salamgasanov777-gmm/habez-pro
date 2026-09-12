@@ -167,6 +167,22 @@ CREATE TABLE IF NOT EXISTS prices (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS ux_prices ON prices(variant_id, tier, min_qty);
 
+-- Push-уведомления менеджерам. Одна строка — одно устройство: у менеджера
+-- может быть телефон и компьютер, оба получат заказ. Адрес (endpoint) выдаёт
+-- браузер, он уникален; протухшие адреса удаляются при первой же ошибке.
+CREATE TABLE IF NOT EXISTS push_subscriptions (
+  id            INTEGER PRIMARY KEY,
+  tenant_id     INTEGER NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  user_id       INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  endpoint      TEXT NOT NULL UNIQUE,
+  p256dh        TEXT NOT NULL,
+  auth          TEXT NOT NULL,
+  user_agent    TEXT,
+  created_at    TEXT NOT NULL DEFAULT (datetime('now')),
+  last_ok_at    TEXT
+);
+CREATE INDEX IF NOT EXISTS ix_push_user ON push_subscriptions(tenant_id, user_id);
+
 CREATE TABLE IF NOT EXISTS stock (
   variant_id    INTEGER PRIMARY KEY REFERENCES variants(id) ON DELETE CASCADE,
   tenant_id     INTEGER NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,

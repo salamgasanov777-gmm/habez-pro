@@ -73,7 +73,7 @@ export const get = (path, options) => api(path, options);
 export const post = (path, body, options) => api(path, { ...options, method: "POST", body });
 export const patch = (path, body) => api(path, { method: "PATCH", body });
 export const put = (path, body) => api(path, { method: "PUT", body });
-export const del = (path) => api(path, { method: "DELETE" });
+export const del = (path, body) => api(path, { method: "DELETE", body });
 
 export const qs = (params) =>
   Object.entries(params)

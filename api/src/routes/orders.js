@@ -46,7 +46,7 @@ export default async function orderRoutes(app) {
       ...order.items.map((i) => `• ${i.name} — ${i.qty} × ${rub(i.price)}`),
       `Итого: ${rub(order.total)}`,
       order.delivery.type === "delivery" ? `Доставка: ${order.delivery.address}` : "Самовывоз",
-    ], req.log);
+    ], req.log, { tenantId: req.tenant.id, url: "/admin/orders" });
 
     reply.code(201);
     return order;

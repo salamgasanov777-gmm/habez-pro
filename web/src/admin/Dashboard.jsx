@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import * as api from "../lib/api.js";
 import { money, plural } from "../lib/format.js";
+import PushCard from "./PushCard.jsx";
 
 export default function Dashboard() {
   const [s, setS] = useState(null);
@@ -16,6 +17,8 @@ export default function Dashboard() {
         <h1>Сводка</h1>
         <a className="btn btn-sm" href="/api/admin/export/prices.csv">Выгрузить прайс в Excel</a>
       </div>
+
+      <PushCard />
 
       <div className="kpis">
         <div className="kpi"><span className="label">Заказов сегодня</span><b>{s.orders.today}</b>

@@ -1,6 +1,7 @@
 // Уведомления вынесены за интерфейс: сегодня всё падает в лог и Telegram,
 // завтра подключается SMS-агрегатор — вызовы в бизнес-коде не меняются.
 import { config } from "../config.js";
+import { pushToTenant } from "./push.js";
 
 async function telegram(text) {
   const { telegramBotToken: token, telegramChatId: chat } = config.notify;
@@ -35,8 +36,19 @@ export async function sendEmail(to, subject, text, log) {
   throw new Error(`Почтовый провайдер ${config.notify.emailProvider} не настроен`);
 }
 
-export async function notifyManagers(title, lines, log) {
+// Заказ или заявка — всем менеджерам. Push в приложение идёт всегда:
+// это свой канал, без договоров. Telegram — дополнительно, если настроен.
+export async function notifyManagers(title, lines, log, { tenantId, url } = {}) {
   const text = `<b>${title}</b>\n` + lines.join("\n");
-  const sent = await telegram(text);
-  if (!sent) log?.info({ title, lines }, "Уведомление менеджерам (режим лога)");
+  let delivered = false;
+  if (tenantId) {
+    try {
+      const r = await pushToTenant(tenantId, { title, body: lines.join("\n"), url: url || "/admin" }, log);
+      delivered = r.sent > 0;
+    } catch (e) {
+      log?.warn({ err: e.message }, "push: сбой отправки");
+    }
+  }
+  if (await telegram(text)) delivered = true;
+  if (!delivered) log?.info({ title, lines }, "Уведомление менеджерам (режим лога)");
 }

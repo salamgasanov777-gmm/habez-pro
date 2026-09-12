@@ -31,6 +31,10 @@ orders=$(/usr/bin/sqlite3 "$file" "SELECT COUNT(*) FROM orders")
 # Оставляем последние копии, остальные удаляем.
 ls -1t "$dest"/hgz-*.db 2>/dev/null | tail -n +$((keep + 1)) | while read -r old; do rm -f "$old"; done
 
+# Ключи push-уведомлений живут рядом с базой. Потерять их — значит, всем
+# менеджерам придётся включать уведомления заново, поэтому копируем и их.
+[ -f api/var/vapid.json ] && cp api/var/vapid.json "$dest/vapid.json"
+
 total=$(ls -1 "$dest"/hgz-*.db 2>/dev/null | wc -l | tr -d ' ')
 echo "✓ копия: $file"
 echo "  товаров $products, заказов $orders, копий в папке $total"

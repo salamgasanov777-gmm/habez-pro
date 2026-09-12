@@ -1,6 +1,6 @@
 // Офлайн-режим. Прораб на объекте часто без сети — карточки, которые он уже
 // открывал, должны открываться и без интернета, как в прежнем каталоге.
-const VERSION = "habez-gips-v1";
+const VERSION = "habez-gips-v2";
 const SHELL = `${VERSION}-shell`;
 const DATA = `${VERSION}-data`;
 const IMAGES = `${VERSION}-img`;
@@ -14,6 +14,39 @@ self.addEventListener("activate", (e) => {
     caches.keys()
       .then((keys) => Promise.all(keys.filter((k) => !k.startsWith(VERSION)).map((k) => caches.delete(k))))
       .then(() => self.clients.claim())
+  );
+});
+
+// ── Push-уведомления менеджеру ─────────────────────────────────────────
+// Сервер прислал сообщение о заказе — показываем его как обычное
+// уведомление телефона, даже если приложение закрыто.
+self.addEventListener("push", (event) => {
+  let data = {};
+  try { data = event.data ? event.data.json() : {}; } catch { data = { title: "Habez Gips", body: event.data?.text() || "" }; }
+  const title = data.title || "Habez Gips";
+  event.waitUntil(self.registration.showNotification(title, {
+    body: data.body || "",
+    icon: "./icon-192.png",
+    badge: "./icon-192.png",
+    // Заказы не схлопываются в одно уведомление: каждый — отдельно.
+    tag: data.tag || ("hgz-" + Date.now()),
+    data: { url: data.url || "./admin" },
+    vibrate: [90, 40, 90],
+  }));
+});
+
+// Нажатие на уведомление открывает нужный раздел панели. Если приложение
+// уже открыто — переводим его, а не плодим окна.
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const target = new URL(event.notification.data?.url || "./admin", self.registration.scope).href;
+  event.waitUntil(
+    self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((list) => {
+      for (const c of list) {
+        if ("focus" in c) { c.navigate(target); return c.focus(); }
+      }
+      return self.clients.openWindow(target);
+    })
   );
 });
 

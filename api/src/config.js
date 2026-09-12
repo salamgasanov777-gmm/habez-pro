@@ -69,6 +69,12 @@ export const config = {
     emailProvider: env.EMAIL_PROVIDER || "log",
     telegramBotToken: env.TELEGRAM_BOT_TOKEN || "",
     telegramChatId: env.TELEGRAM_CHAT_ID || "",
+    // Push в приложение. Пара ключей VAPID — подпись сервера, по которой
+    // браузер понимает, что уведомление наше. Можно задать в окружении;
+    // если не задана — создаётся при первом запуске и хранится в var/vapid.json.
+    vapidPublicKey: env.VAPID_PUBLIC_KEY || "",
+    vapidPrivateKey: env.VAPID_PRIVATE_KEY || "",
+    vapidSubject: env.VAPID_SUBJECT || "mailto:salam-gasanov@mail.ru",
   },
 
   logLevel: env.LOG_LEVEL || (env.NODE_ENV === "production" ? "info" : "debug"),
