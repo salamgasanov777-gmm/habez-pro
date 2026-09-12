@@ -156,8 +156,8 @@ export default function Layout({ children }) {
   // она выезжает и когда закрывается, каталог под ней должен остаться там же,
   // где человек его листал.
   useEffect(() => {
-    const opening = !!loc.state?.background;
-    const closing = !!prev.current.state?.background;
+    const opening = !!loc.state?.sheet;
+    const closing = !!prev.current.state?.sheet;
     if (!opening && !closing) window.scrollTo(0, 0);
     prev.current = loc;
   }, [loc]);

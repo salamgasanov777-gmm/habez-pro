@@ -46,9 +46,9 @@ export default function App() {
   const location = useLocation();
   const narrow = useNarrow();
 
-  // Метку ставит ссылка на товар. Если её нет — человек пришёл по прямому
-  // адресу, и карточку надо показать страницей, а не шторкой над пустотой.
-  const background = narrow ? location.state?.background : null;
+  // Шторку ставит ссылка на товар в состояние записи истории; адрес при этом
+  // остаётся адресом каталога. Пришёл по прямой ссылке /p/… — увидит страницу.
+  const sheet = narrow ? location.state?.sheet : null;
 
   return (
     <>
@@ -63,7 +63,7 @@ export default function App() {
 
         <Route path="*" element={
           <Layout>
-            <Routes location={background || location}>
+            <Routes>
               <Route path="/" element={<Catalog />} />
               <Route path="/p/:slug" element={<Product />} />
               <Route path="/cart" element={<Cart />} />
@@ -75,11 +75,7 @@ export default function App() {
               <Route path="/account" element={<Account />} />
               <Route path="*" element={<div className="empty"><h3>Страница не найдена</h3><p>Проверьте адрес или вернитесь в каталог.</p></div>} />
             </Routes>
-            {background && (
-              <Routes>
-                <Route path="/p/:slug" element={<ProductSheet />} />
-              </Routes>
-            )}
+            {sheet && <ProductSheet slug={sheet} />}
           </Layout>
         } />
       </Routes>

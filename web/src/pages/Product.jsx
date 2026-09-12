@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useParams, Link } from "react-router-dom";
+import { useParams, Link, useLocation } from "react-router-dom";
 import { useApp } from "../store.jsx";
 import * as api from "../lib/api.js";
 import { money, num, mediaUrl } from "../lib/format.js";
@@ -51,8 +51,13 @@ function Calculator({ product }) {
   );
 }
 
-export default function Product() {
-  const { slug } = useParams();
+export default function Product(props) {
+  const params = useParams();
+  // Шторка передаёт товар пропом, страница берёт его из адреса.
+  const slug = props.slug || params.slug;
+  // Внутри шторки любая ссылка наружу заменяет её в истории: закрыл шторку
+  // переходом в раздел — жест «назад» ведёт в каталог, а не к шторке.
+  const inSheet = !!useLocation().state?.sheet;
   const { addToCart, isFavorite, toggleFavorite, meta } = useApp();
   const [data, setData] = useState(null);
   const [variantId, setVariantId] = useState(null);
@@ -67,7 +72,7 @@ export default function Product() {
       .catch(() => setError(true));
   }, [slug]);
 
-  if (error) return <div className="empty"><h3>Товар не найден</h3><Link to="/" className="btn">В каталог</Link></div>;
+  if (error) return <div className="empty"><h3>Товар не найден</h3><Link to="/" replace={inSheet} className="btn">В каталог</Link></div>;
   if (!data) return <div className="page"><div className="skeleton" style={{ height: 420, marginTop: 24 }} /></div>;
 
   const p = data.product;
@@ -93,8 +98,8 @@ export default function Product() {
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }} />
 
       <nav className="crumbs">
-        <Link to="/">Каталог</Link><span>/</span>
-        <Link to={`/?category=${p.categorySlug}`}>{p.category}</Link><span>/</span>
+        <Link to="/" replace={inSheet}>Каталог</Link><span>/</span>
+        <Link to={`/?category=${p.categorySlug}`} replace={inSheet}>{p.category}</Link><span>/</span>
         <span className="dim">{p.shortName || p.name}</span>
       </nav>
 

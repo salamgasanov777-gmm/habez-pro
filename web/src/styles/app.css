@@ -73,7 +73,11 @@
 * { box-sizing: border-box; }
 /* Приложение не масштабируется: щипок и двойное касание не приближают
    страницу — как в обычном мобильном приложении. */
-html { -webkit-text-size-adjust: 100%; touch-action: pan-x pan-y; }
+/* overscroll-behavior-x: смахивание с края не должно листать историю —
+   Chrome и Андроид это уважают, Safari в обычной вкладке — нет (в
+   установленном приложении жеста «назад» у Safari нет вовсе). */
+html { -webkit-text-size-adjust: 100%; touch-action: pan-x pan-y; overscroll-behavior-x: none; }
+body { overscroll-behavior-x: none; }
 
 body {
   margin: 0;

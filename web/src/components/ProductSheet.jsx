@@ -8,7 +8,7 @@ import { Close } from "./Icons.jsx";
 //
 // Тянем не перерисовкой, а прямой записью в стиль: в карточке много всего,
 // и перерисовывать её на каждое движение пальца — заведомо рвано.
-export default function ProductSheet() {
+export default function ProductSheet({ slug }) {
   const nav = useNavigate();
   const sheet = useRef(null);
   const backdrop = useRef(null);
@@ -132,7 +132,7 @@ export default function ProductSheet() {
           <Close />
         </button>
         <div className="sheet-scroll" ref={scroller}>
-          <Product />
+          <Product slug={slug} />
         </div>
       </div>
     </>
