@@ -25,7 +25,11 @@ export default function Checkout() {
   // Автономная копия сайта (без сервера): оплатить и отправить заказ некуда,
   // поэтому оформление собирает заказ в текст для менеджера.
   const standalone = !!meta?.settings?.standalone;
-  const [payNow, setPayNow] = useState(!standalone);
+  // «Картой онлайн» предлагается только когда на сервере настроен настоящий
+  // провайдер оплаты. Без него покупатель не должен попасть ни на какую
+  // страницу, похожую на оплату банка.
+  const onlinePayment = !standalone && meta?.settings?.onlinePayment === true;
+  const [payNow, setPayNow] = useState(onlinePayment);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState(null);
 
@@ -66,7 +70,7 @@ export default function Checkout() {
       // запоминаем здесь; в адрес он не попадает.
       store.set("last-order", { number: order.number, token: order.accessToken });
 
-      if (payNow && order.total > 0) {
+      if (onlinePayment && payNow && order.total > 0) {
         const pay = await api.post("/api/payments/create", { orderNumber: order.number });
         // Уходим на страницу банка: возврат настроен на /checkout/result.
         if (pay.url) { location.href = pay.url; return; }
@@ -132,14 +136,23 @@ export default function Checkout() {
 
           {!standalone && <section className="panel stack">
             <h3>Оплата</h3>
-            <label className="row" style={{ cursor: "pointer" }}>
-              <input type="radio" checked={payNow} onChange={() => setPayNow(true)} />
-              <span>Картой онлайн — заказ уходит в работу сразу</span>
-            </label>
-            <label className="row" style={{ cursor: "pointer" }}>
-              <input type="radio" checked={!payNow} onChange={() => setPayNow(false)} />
-              <span>Счёт или оплата при получении — менеджер свяжется и подтвердит</span>
-            </label>
+            {onlinePayment ? (
+              <>
+                <label className="row" style={{ cursor: "pointer" }}>
+                  <input type="radio" checked={payNow} onChange={() => setPayNow(true)} />
+                  <span>Картой онлайн — заказ уходит в работу сразу</span>
+                </label>
+                <label className="row" style={{ cursor: "pointer" }}>
+                  <input type="radio" checked={!payNow} onChange={() => setPayNow(false)} />
+                  <span>Счёт или оплата при получении — менеджер свяжется и подтвердит</span>
+                </label>
+              </>
+            ) : (
+              <>
+                <p style={{ margin: 0 }}>Счёт или оплата при получении — менеджер свяжется и подтвердит.</p>
+                <p className="hint" style={{ margin: 0 }}>Онлайн-оплата временно недоступна.</p>
+              </>
+            )}
           </section>}
         </div>
 
@@ -168,7 +181,7 @@ export default function Checkout() {
 
           {err && <p className="error-text">{err}</p>}
           <button className="btn btn-primary btn-lg btn-block" disabled={busy || !consent}>
-            {busy ? "Оформляем…" : standalone ? "Собрать заказ для менеджера" : payNow ? "Перейти к оплате" : "Оформить заказ"}
+            {busy ? "Оформляем…" : standalone ? "Собрать заказ для менеджера" : onlinePayment && payNow ? "Перейти к оплате" : "Оформить заказ"}
           </button>
           <p className="hint">{plural(cart.count, "товар", "товара", "товаров")}{standalone && " · заказ уйдёт менеджеру сообщением или по телефону"}</p>
         </aside>

@@ -5,7 +5,7 @@ import * as api from "../lib/api.js";
 import { money, dateTime, ORDER_LABEL, PAY_LABEL } from "../lib/format.js";
 
 export default function Account() {
-  const { user, logout, ready } = useApp();
+  const { user, logout, ready, meta } = useApp();
   const nav = useNavigate();
   const [orders, setOrders] = useState(null);
 
@@ -60,7 +60,7 @@ export default function Account() {
                   <div className="sum-row" key={n}><span className="muted">{i.name} × {i.qty}</span><span className="num">{money(i.total)}</span></div>
                 ))}
                 <div className="sum-row total"><span>Итого</span><span>{money(o.total)}</span></div>
-                {o.payment?.url && o.paymentStatus === "pending" && (
+                {meta?.settings?.onlinePayment && o.payment?.url && o.paymentStatus === "pending" && (
                   <a href={o.payment.url} className="btn btn-primary btn-block" style={{ marginTop: 12 }}>Оплатить</a>
                 )}
               </div>
