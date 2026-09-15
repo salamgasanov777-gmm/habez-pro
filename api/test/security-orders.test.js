@@ -161,3 +161,25 @@ test("П-13: позиция «по запросу» не превращаетс�
   assert.equal(ok.statusCode, 201);
   assert.ok(json(ok).total > 0);
 });
+
+test("П-34: повтор оформления с тем же Idempotency-Key возвращает тот же заказ и тот же токен", async () => {
+  const { get } = await import("../src/db/index.js");
+  const added = await app.inject({ method: "POST", url: "/api/cart/items", payload: { variantId, qty: 2 } });
+  const cookie = added.cookies.find((c) => c.name === "hgz_cart").value;
+  const key = "attempt-" + Date.now() + "-abcdef";
+  const send = () => app.inject({
+    method: "POST", url: "/api/orders", headers: { cookie: `hgz_cart=${cookie}`, "idempotency-key": key },
+    payload: { customer: { name: "Двойное Нажатие", phone: "+79001000010" }, consent: true },
+  });
+  const before = get("SELECT COUNT(*) AS n FROM orders").n;
+  const first = await send();
+  const second = await send();
+  assert.equal(first.statusCode, 201);
+  assert.equal(second.statusCode, 200);
+  assert.equal(json(first).number, json(second).number);
+  assert.equal(json(first).accessToken, json(second).accessToken);
+  assert.equal(get("SELECT COUNT(*) AS n FROM orders").n, before + 1);
+  // Токен рабочий.
+  const ok = await view(json(first).number, { "x-order-token": json(second).accessToken });
+  assert.equal(ok.statusCode, 200);
+});

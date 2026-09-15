@@ -27,10 +27,14 @@ export const mockProvider = {
   // Демо-страница присылает ключ платежа: без него «оплатить» заказ
   // посторонним запросом нельзя даже на демо-стенде.
   parseWebhook(body) {
+    const amount = body?.object?.amount;
     return {
       providerId: body?.object?.id,
       key: body?.object?.key,
       status: body?.object?.status === "succeeded" ? "succeeded" : "canceled",
+      // Демо-страница присылает сумму, как это делает настоящий провайдер:
+      // сверка суммы проверяется и в демо-режиме.
+      amount: amount === undefined ? undefined : Number(amount),
     };
   },
 };

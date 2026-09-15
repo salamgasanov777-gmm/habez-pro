@@ -5,7 +5,15 @@ import { priceMapFor, tierFor, unitPrice } from "./pricing.js";
 import { cartView } from "./cart.js";
 import { badRequest, notFound } from "../lib/errors.js";
 import { randomToken, sha256 } from "../lib/crypto.js";
-import { timingSafeEqual } from "node:crypto";
+import { createHmac, timingSafeEqual } from "node:crypto";
+import { config } from "../config.js";
+
+// Токен доступа при повторе запроса должен получиться тем же самым — иначе
+// клиент, не дождавшийся первого ответа, останется без доступа к заказу.
+// Поэтому при ключе идемпотентности токен выводится из ключа и id заказа,
+// а без ключа — случайный, как раньше.
+const deriveToken = (orderId, key) =>
+  createHmac("sha256", config.auth.jwtSecret).update(`order-token:${orderId}:${key}`).digest("base64url");
 
 export function nextOrderNumber(tenantId, prefix = "ЗК") {
   const d = new Date();
@@ -31,7 +39,13 @@ export function applyPromo(tenantId, code, subtotal) {
   return { discount, promo };
 }
 
-export function createOrder({ tenant, user, cart, customer, deliveryCost = 0, promoCode = null, source = "web" }) {
+export function createOrder({ tenant, user, cart, customer, deliveryCost = 0, promoCode = null, source = "web", idempotencyKey = null }) {
+  // Повтор того же запроса (двойное нажатие, обрыв сети) — тот же заказ.
+  if (idempotencyKey) {
+    const existing = get("SELECT id FROM orders WHERE tenant_id=? AND idempotency_key=?", tenant.id, idempotencyKey);
+    if (existing) return { ...orderView(tenant.id, existing.id), accessToken: deriveToken(existing.id, idempotencyKey), replayed: true };
+  }
+
   const view = cartView(tenant.id, cart, user);
   if (!view.items.length) throw badRequest("Корзина пуста");
   // Позиция без цены — это заявка менеджеру, а не заказ: иначе она попала бы
@@ -53,10 +67,6 @@ export function createOrder({ tenant, user, cart, customer, deliveryCost = 0, pr
 
     const { discount, promo } = applyPromo(tenant.id, promoCode, subtotal);
 
-    // Секрет доступа выдаётся ровно один раз — в ответе на оформление.
-    // В базе только хеш: утечка базы не открывает чужие заказы.
-    const accessToken = randomToken(32);
-
     const orderId = insert("orders", {
       tenant_id: tenant.id,
       number: nextOrderNumber(tenant.id, JSON.parse(tenant.settings || "{}").orderPrefix || "ЗК"),
@@ -76,8 +86,13 @@ export function createOrder({ tenant, user, cart, customer, deliveryCost = 0, pr
       total: Math.max(0, subtotal - discount + deliveryCost),
       promo_code: promo?.code ?? null,
       source,
-      access_token_hash: sha256(accessToken),
+      idempotency_key: idempotencyKey,
     });
+
+    // Секрет доступа выдаётся в ответе на оформление (и при повторе с тем же
+    // ключом). В базе только хеш: утечка базы не открывает чужие заказы.
+    const accessToken = idempotencyKey ? deriveToken(orderId, idempotencyKey) : randomToken(32);
+    run("UPDATE orders SET access_token_hash=? WHERE id=?", sha256(accessToken), orderId);
 
     for (const r of rows) insert("order_items", { order_id: orderId, ...r });
     insert("order_events", { order_id: orderId, status: "new", note: "Заказ оформлен", actor_id: user?.id ?? null });

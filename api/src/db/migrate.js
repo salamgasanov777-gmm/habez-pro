@@ -41,6 +41,13 @@ const STEPS = [
     const has = db.prepare("PRAGMA table_info(orders)").all().some((c) => c.name === "access_token_hash");
     if (!has) db.exec("ALTER TABLE orders ADD COLUMN access_token_hash TEXT");
   }],
+  // П-34/П-36–39: идемпотентность заказа и история статусов платежа.
+  // Таблицу payment_events и индекс создаёт schema.sql; здесь — колонка.
+  ["2026-09-orders-idempotency", () => {
+    const has = db.prepare("PRAGMA table_info(orders)").all().some((c) => c.name === "idempotency_key");
+    if (!has) db.exec("ALTER TABLE orders ADD COLUMN idempotency_key TEXT");
+    db.exec("CREATE UNIQUE INDEX IF NOT EXISTS ux_orders_idem ON orders(tenant_id, idempotency_key) WHERE idempotency_key IS NOT NULL");
+  }],
 ];
 
 for (const [name, sql] of STEPS) {

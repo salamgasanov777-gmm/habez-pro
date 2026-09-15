@@ -249,10 +249,15 @@ CREATE TABLE IF NOT EXISTS orders (
   -- Гость смотрит свой заказ по секретной ссылке: сервер выдаёт токен при
   -- оформлении и хранит только его хеш. Номер и телефон правом доступа не являются.
   access_token_hash TEXT,
+  -- Ключ идемпотентности от клиента: повтор запроса (двойное нажатие, обрыв
+  -- сети) возвращает тот же заказ, а не создаёт второй.
+  idempotency_key TEXT,
   created_at    TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at    TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE UNIQUE INDEX IF NOT EXISTS ux_orders_number ON orders(tenant_id, number);
+-- ux_orders_idem (tenant_id, idempotency_key) создаёт миграция: на старой базе
+-- колонка появляется только там.
 CREATE INDEX IF NOT EXISTS ix_orders_user ON orders(tenant_id, user_id, created_at);
 CREATE INDEX IF NOT EXISTS ix_orders_status ON orders(tenant_id, status, created_at);
 
@@ -295,6 +300,18 @@ CREATE TABLE IF NOT EXISTS payments (
 );
 CREATE INDEX IF NOT EXISTS ix_payments_order ON payments(order_id);
 CREATE UNIQUE INDEX IF NOT EXISTS ux_payments_provider ON payments(provider, provider_id);
+
+-- История статусов платежа: когда и почему он стал pending → succeeded /
+-- canceled / mismatch. Спор с покупателем разбирается по этой таблице.
+CREATE TABLE IF NOT EXISTS payment_events (
+  id            INTEGER PRIMARY KEY,
+  payment_id    INTEGER NOT NULL REFERENCES payments(id) ON DELETE CASCADE,
+  status        TEXT NOT NULL,
+  note          TEXT,
+  amount        INTEGER,
+  created_at    TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS ix_payment_events ON payment_events(payment_id);
 
 CREATE TABLE IF NOT EXISTS promo_codes (
   id            INTEGER PRIMARY KEY,

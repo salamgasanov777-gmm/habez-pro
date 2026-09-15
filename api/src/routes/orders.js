@@ -38,11 +38,15 @@ export default async function orderRoutes(app) {
     const cart = getOrCreateCart(req, reply);
     const settings = JSON.parse(req.tenant.settings || "{}");
     const deliveryCost = body.customer.deliveryType === "delivery" ? (settings.deliveryCost ?? 0) : 0;
+    // Ключ идемпотентности — от клиента, на одну попытку оформления.
+    const idem = String(req.headers["idempotency-key"] || "").trim();
+    const idempotencyKey = /^[A-Za-z0-9_-]{16,80}$/.test(idem) ? idem : null;
 
     const order = createOrder({
       tenant: req.tenant, user: req.user, cart,
-      customer: body.customer, deliveryCost, promoCode: body.promoCode || null,
+      customer: body.customer, deliveryCost, promoCode: body.promoCode || null, idempotencyKey,
     });
+    if (order.replayed) { delete order.replayed; return order; }
 
     const KIND = { person: "частное лицо", foreman: "прораб", shop: "магазин", company: "организация" };
     const who = [KIND[order.customer.kind] || "", order.customer.company].filter(Boolean).join(", ");

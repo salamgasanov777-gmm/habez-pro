@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { useApp } from "../store.jsx";
 import * as api from "../lib/api.js";
@@ -32,6 +32,10 @@ export default function Checkout() {
   const [payNow, setPayNow] = useState(onlinePayment);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState(null);
+  // Ключ идемпотентности на одну попытку оформления: повтор запроса после
+  // обрыва сети или двойного нажатия вернёт тот же заказ, а не создаст второй.
+  const newKey = () => (crypto.randomUUID ? crypto.randomUUID() : Array.from(crypto.getRandomValues(new Uint8Array(16)), (b) => b.toString(16).padStart(2, "0")).join(""));
+  const idemKey = useRef(newKey());
 
   const deliveryCost = form.deliveryType === "delivery" ? (meta?.settings?.deliveryCost ?? 0) : 0;
   const total = Math.max(0, cart.subtotal - discount + deliveryCost);
@@ -53,7 +57,9 @@ export default function Checkout() {
     e.preventDefault();
     setBusy(true); setErr(null);
     try {
-      const order = await api.post("/api/orders", { customer: form, promoCode: promo || null, consent });
+      const order = await api.post("/api/orders", { customer: form, promoCode: promo || null, consent },
+        { headers: { "idempotency-key": idemKey.current } });
+      idemKey.current = newKey();
       await reloadCart();
 
       if (order.standalone) {
@@ -71,7 +77,8 @@ export default function Checkout() {
       store.set("last-order", { number: order.number, token: order.accessToken });
 
       if (onlinePayment && payNow && order.total > 0) {
-        const pay = await api.post("/api/payments/create", { orderNumber: order.number });
+        const pay = await api.post("/api/payments/create", { orderNumber: order.number },
+          { headers: { "x-order-token": order.accessToken } });
         // Уходим на страницу банка: возврат настроен на /checkout/result.
         if (pay.url) { location.href = pay.url; return; }
       }

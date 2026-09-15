@@ -1,8 +1,10 @@
 // ЮKassa — основной эквайринг для российского юрлица. Ключи оформляет
 // владелец бизнеса: сюда они попадают только через переменные окружения.
 import { config } from "../config.js";
+import { buildReceipt } from "./receipt.js";
 
 const y = () => config.payments.yookassa;
+const kopecks = (value) => Math.round(Number(value) * 100);
 
 function authHeader() {
   const { shopId, secretKey } = y();
@@ -42,18 +44,10 @@ export const yookassaProvider = {
         confirmation: { type: "redirect", return_url: `${config.payments.returnUrl}?order=${order.number}` },
         description: `Заказ ${order.number}`,
         metadata: { order_id: String(order.id), order_number: order.number, tenant_id: String(order.tenant_id) },
-        // Чек по 54-ФЗ. Без него онлайн-касса не пробьёт продажу.
-        receipt: {
-          customer: { phone: order.customer_phone?.replace(/\D/g, ""), email: order.customer_email || undefined },
-          items: items.map((i) => ({
-            description: i.product_name.slice(0, 128),
-            quantity: String(i.qty),
-            amount: { value: (i.price / 100).toFixed(2), currency: "RUB" },
-            vat_code: y().vatCode,
-            payment_mode: "full_prepayment",
-            payment_subject: "commodity",
-          })),
-        },
+        // Чек по 54-ФЗ. Без него онлайн-касса не пробьёт продажу; сумма строк
+        // чека обязана совпасть с платежом — за это отвечает buildReceipt
+        // (скидка по позициям, доставка отдельной строкой).
+        receipt: buildReceipt(order, items, y().vatCode),
       },
     });
 
@@ -65,9 +59,10 @@ export const yookassaProvider = {
     };
   },
 
+  // Сумму возвращаем в копейках: вебхук сверяет её с суммой платежа в базе.
   async fetchPayment(providerId) {
     const data = await call(`/payments/${providerId}`);
-    return { providerId: data.id, status: data.status, raw: data };
+    return { providerId: data.id, status: data.status, amount: kopecks(data.amount?.value), currency: data.amount?.currency, raw: data };
   },
 
   // ЮKassa не подписывает вебхуки — доверять телу нельзя. Единственный

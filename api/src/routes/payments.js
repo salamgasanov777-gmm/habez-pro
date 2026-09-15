@@ -6,11 +6,57 @@ import { randomUUID } from "node:crypto";
 import { all, get, insert, run } from "../db/index.js";
 import { config } from "../config.js";
 import { paymentProvider, paymentsEnabled } from "../payments/index.js";
-import { setStatus } from "../services/orders.js";
-import { badRequest, notFound } from "../lib/errors.js";
+import { setStatus, orderTokenOk } from "../services/orders.js";
+import { badRequest, notFound, forbidden } from "../lib/errors.js";
 import { rub } from "../lib/money.js";
+import { notifyManagers } from "../lib/notify.js";
 
 const paymentsOff = () => badRequest("Онлайн-оплата недоступна: заказ оплачивается менеджеру или по счёту");
+
+// Статусы, при которых платёж у провайдера ещё «живой» и второй создавать нельзя.
+const OPEN = new Set(["pending", "waiting_for_capture"]);
+
+const paymentEvent = (paymentId, status, note, amount) =>
+  insert("payment_events", { payment_id: paymentId, status, note: note ?? null, amount: amount ?? null });
+
+// Единственное место, где результат платежа применяется к заказу.
+// Сюда попадают и вебхук, и перепроверка перед созданием нового платежа.
+// Правила: сумма обязана совпасть с суммой платежа в базе; уже оплаченный
+// заказ второй раз не оплачивается — платёж помечается к возврату.
+function applyPaymentResult(payment, { status, amount }, log, note = "") {
+  if (payment.status === "succeeded") return "succeeded";
+
+  if (status === "succeeded" && amount !== undefined && amount !== payment.amount) {
+    run("UPDATE payments SET status='mismatch', updated_at=datetime('now') WHERE id=?", payment.id);
+    paymentEvent(payment.id, "mismatch", `сумма провайдера ${amount} ≠ сумма платежа ${payment.amount}. ${note}`.trim(), amount);
+    insert("audit_log", { tenant_id: payment.tenant_id, actor_id: null, action: "payment.mismatch", entity: "payment",
+      entity_id: String(payment.id), diff: { expected: payment.amount, got: amount } });
+    log?.error({ paymentId: payment.id, expected: payment.amount, got: amount }, "оплата: сумма не сходится");
+    notifyManagers("Оплата: сумма не сходится", [`Платёж №${payment.id}: ожидали ${rub(payment.amount)}, пришло ${rub(amount)}`, "Заказ не помечен оплаченным — проверьте в кабинете провайдера"], log, { tenantId: payment.tenant_id, url: "/admin/orders" });
+    return "mismatch";
+  }
+
+  run("UPDATE payments SET status=?, updated_at=datetime('now') WHERE id=?", status, payment.id);
+  paymentEvent(payment.id, status, note || null, amount);
+
+  if (status === "succeeded") {
+    const order = get("SELECT * FROM orders WHERE id=?", payment.order_id);
+    if (order.payment_status === "paid") {
+      // Второй успешный платёж по уже оплаченному заказу: деньги надо вернуть.
+      run("UPDATE payments SET status='needs_refund' WHERE id=?", payment.id);
+      paymentEvent(payment.id, "needs_refund", "заказ уже был оплачен другим платежом");
+      insert("audit_log", { tenant_id: payment.tenant_id, actor_id: null, action: "payment.duplicate", entity: "order",
+        entity_id: String(order.id), diff: { paymentId: payment.id, amount: payment.amount } });
+      notifyManagers("Двойная оплата", [`Заказ ${order.number} оплачен повторно: платёж №${payment.id} на ${rub(payment.amount)}`, "Нужен возврат покупателю"], log, { tenantId: payment.tenant_id, url: "/admin/orders" });
+      return "needs_refund";
+    }
+    run("UPDATE orders SET payment_status='paid' WHERE id=?", payment.order_id);
+    setStatus(payment.tenant_id, payment.order_id, "paid", null, "Оплата подтверждена провайдером");
+  } else if (status === "canceled") {
+    run("UPDATE orders SET payment_status='failed' WHERE id=? AND payment_status='pending'", payment.order_id);
+  }
+  return status;
+}
 
 export default async function paymentRoutes(app) {
   app.post("/api/payments/create", async (req) => {
@@ -18,15 +64,28 @@ export default async function paymentRoutes(app) {
     const { orderNumber } = z.object({ orderNumber: z.string().min(3).max(40) }).parse(req.body);
     const order = get("SELECT * FROM orders WHERE tenant_id=? AND number=?", req.tenant.id, orderNumber);
     if (!order) throw notFound("Заказ не найден");
+    // Платёж создаёт тот, кто вправе видеть заказ: владелец, сотрудник или
+    // гость с токеном из оформления (то же правило, что у GET /api/orders/:number).
+    const isOwner = req.user && order.user_id !== null && order.user_id === req.user.id;
+    const isStaff = req.user && ["manager", "admin", "owner"].includes(req.user.role);
+    if (!isOwner && !isStaff && !orderTokenOk(order, req.headers["x-order-token"])) throw forbidden("Оплатить заказ может только его владелец");
     if (order.payment_status === "paid") throw badRequest("Заказ уже оплачен");
     if (order.total <= 0) throw badRequest("По этому заказу цена уточняется менеджером");
 
-    const pending = get(
-      `SELECT * FROM payments WHERE order_id=? AND status='pending' AND created_at > datetime('now','-15 minutes')
-       ORDER BY id DESC LIMIT 1`, order.id);
-    if (pending?.confirmation_url) return { url: pending.confirmation_url, paymentId: pending.id, status: pending.status };
-
     const provider = paymentProvider();
+
+    // Пока у провайдера есть незавершённый платёж по заказу — второй не
+    // создаём (иначе покупатель с двумя вкладками заплатит дважды). Перед
+    // тем как отдать старую ссылку, перепроверяем его статус у провайдера:
+    // он мог успеть оплатиться или отмениться, пока вебхук не дошёл.
+    const open = all("SELECT * FROM payments WHERE order_id=? AND provider=? AND status IN ('pending','waiting_for_capture') ORDER BY id DESC", order.id, provider.name);
+    for (const p of open) {
+      const fresh = provider.name === "mock" ? { status: p.status } : await provider.fetchPayment(p.provider_id);
+      if (OPEN.has(fresh.status)) return { url: p.confirmation_url, paymentId: p.id, status: p.status };
+      const result = applyPaymentResult(p, fresh, req.log, "перепроверка перед созданием нового платежа");
+      if (result === "succeeded") throw badRequest("Заказ уже оплачен");
+    }
+
     const idempotenceKey = randomUUID();
     const items = all("SELECT * FROM order_items WHERE order_id=?", order.id);
     const created = await provider.createPayment({ order, amount: order.total, idempotenceKey, items });
@@ -37,6 +96,7 @@ export default async function paymentRoutes(app) {
       confirmation_url: created.confirmationUrl ?? null, idempotence_key: idempotenceKey,
       raw: created.raw ?? {},
     });
+    paymentEvent(id, created.status, "платёж создан", order.total);
     return { url: created.confirmationUrl, paymentId: id, status: created.status };
   });
 
@@ -67,7 +127,7 @@ button{width:100%;padding:14px;border:0;border-radius:12px;font-size:16px;font-w
 <p class=note>Это встроенная имитация эквайринга. В боевом режиме здесь открывается платёжная страница банка.</p></div>
 <script>async function done(status){
   await fetch('${config.publicUrl}/api/payments/webhook/mock',{method:'POST',headers:{'content-type':'application/json','x-tenant':'${req.tenant.slug}'},
-    body:JSON.stringify({event:'payment.'+status,object:{id:'${payment.provider_id}',key:'${payment.idempotence_key}',status:status}})});
+    body:JSON.stringify({event:'payment.'+status,object:{id:'${payment.provider_id}',key:'${payment.idempotence_key}',status:status,amount:${payment.amount}}})});
   location.href='${config.payments.returnUrl}?order=${order.number}&status='+status;
 }</script>`;
   });
@@ -88,24 +148,17 @@ button{width:100%;padding:14px;border:0;border-radius:12px;font-size:16px;font-w
     if (!payment) return { ok: true };
     if (payment.status === "succeeded") return { ok: true }; // повторная доставка вебхука
 
-    let status = parsed.status;
+    let fresh = { status: parsed.status, amount: parsed.amount };
     if (parsed.verifyByFetch) {
-      // Тело вебхука не подписано — перезапрашиваем платёж у провайдера.
-      const fresh = await provider.fetchPayment(payment.provider_id);
-      status = fresh.status;
+      // Тело вебхука не подписано — перезапрашиваем платёж у провайдера,
+      // и статус, и сумму.
+      fresh = await provider.fetchPayment(payment.provider_id);
     } else if (parsed.key !== payment.idempotence_key) {
       // Демо-режим: без ключа платежа телу запроса не верим.
       return reply.code(403).send({ ok: false });
     }
 
-    run("UPDATE payments SET status=?, updated_at=datetime('now') WHERE id=?", status, payment.id);
-
-    if (status === "succeeded") {
-      run("UPDATE orders SET payment_status='paid' WHERE id=?", payment.order_id);
-      setStatus(payment.tenant_id, payment.order_id, "paid", null, "Оплата подтверждена провайдером");
-    } else if (status === "canceled") {
-      run("UPDATE orders SET payment_status='failed' WHERE id=?", payment.order_id);
-    }
+    applyPaymentResult(payment, fresh, req.log, "вебхук провайдера");
     return { ok: true };
   });
 }

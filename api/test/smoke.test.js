@@ -86,7 +86,7 @@ test("корзина, заказ и оплата проходят целиком
   assert.equal(order.customer.company, "Стройка");
   assert.equal(order.total, cart.subtotal);
 
-  const pay = json(await app.inject({ method: "POST", url: "/api/payments/create", payload: { orderNumber: order.number } }));
+  const pay = json(await app.inject({ method: "POST", url: "/api/payments/create", payload: { orderNumber: order.number }, headers: { "x-order-token": order.accessToken } }));
   assert.ok(pay.url.includes("/api/payments/mock/"));
 
   // Демо-страница оплаты открывается только по ключу платежа из ссылки
@@ -97,7 +97,7 @@ test("корзина, заказ и оплата проходят целиком
   const payment = get("SELECT * FROM payments WHERE id=?", pay.paymentId);
   await app.inject({
     method: "POST", url: "/api/payments/webhook/mock",
-    payload: { event: "payment.succeeded", object: { id: payment.provider_id, key: payment.idempotence_key, status: "succeeded" } },
+    payload: { event: "payment.succeeded", object: { id: payment.provider_id, key: payment.idempotence_key, status: "succeeded", amount: payment.amount } },
   });
 
   assert.ok(order.accessToken?.length >= 20, "гостю выдан секрет доступа к заказу");

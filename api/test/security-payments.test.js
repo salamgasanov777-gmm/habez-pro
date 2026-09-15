@@ -36,7 +36,9 @@ before(async () => {
     method: "POST", url: "/api/orders", headers: { cookie: `hgz_cart=${cookie}` },
     payload: { customer: { name: "Жертва Атаки", phone: "+79380000001" }, consent: true },
   }));
-  const pay = json(await app.inject({ method: "POST", url: "/api/payments/create", payload: { orderNumber: order.number } }));
+  const noRight = await app.inject({ method: "POST", url: "/api/payments/create", payload: { orderNumber: order.number } });
+  assert.equal(noRight.statusCode, 403, "без права на заказ платёж не создать");
+  const pay = json(await app.inject({ method: "POST", url: "/api/payments/create", payload: { orderNumber: order.number }, headers: { "x-order-token": order.accessToken } }));
   payment = get("SELECT * FROM payments WHERE id=?", pay.paymentId);
 
   owner = json(await app.inject({ method: "POST", url: "/api/auth/login", payload: { email: "admin@habez.local", password: "admin12345" } }));
@@ -45,6 +47,24 @@ before(async () => {
 });
 
 after(async () => { await app?.close(); });
+
+// Свежий заказ с открытым платежом — для сценариев, которым нужен неоплаченный заказ.
+async function freshOrder(phone) {
+  const product = json(await app.inject("/api/catalog/products/akvalayt")).product;
+  const added = await app.inject({ method: "POST", url: "/api/cart/items", payload: { variantId: product.variants[0].id, qty: 3 } });
+  const cookie = added.cookies.find((c) => c.name === "hgz_cart").value;
+  const o = json(await app.inject({
+    method: "POST", url: "/api/orders", headers: { cookie: `hgz_cart=${cookie}` },
+    payload: { customer: { name: "Покупатель", phone }, consent: true },
+  }));
+  const headers = { "x-order-token": o.accessToken };
+  const pay = json(await app.inject({ method: "POST", url: "/api/payments/create", payload: { orderNumber: o.number }, headers }));
+  return { o, headers, p: get("SELECT * FROM payments WHERE id=?", pay.paymentId), status: () => get("SELECT status, payment_status FROM orders WHERE id=?", o.id) };
+}
+const webhook = (p, extra = {}) => app.inject({
+  method: "POST", url: "/api/payments/webhook/mock",
+  payload: { event: "payment.succeeded", object: { id: p.provider_id, key: p.idempotence_key, status: "succeeded", amount: p.amount, ...extra } },
+});
 
 test("аноним: старый обход — вебхук с номером заказа — отклоняется", async () => {
   const res = await app.inject({
@@ -118,4 +138,56 @@ test("настоящее подтверждение (id + ключ платеж�
   });
   assert.equal(res.statusCode, 200);
   assert.equal(orderNow().payment_status, "paid");
+});
+
+test("П-36: пока платёж не завершён, второй не создаётся — даже спустя час", async () => {
+  const { run } = await import("../src/db/index.js");
+  const t = await freshOrder("+79380000011");
+  run("UPDATE payments SET created_at=datetime('now','-2 hours') WHERE id=?", t.p.id);
+  const again = json(await app.inject({ method: "POST", url: "/api/payments/create", payload: { orderNumber: t.o.number }, headers: t.headers }));
+  assert.equal(again.paymentId, t.p.id);
+  assert.equal(get("SELECT COUNT(*) AS n FROM payments WHERE order_id=?", t.o.id).n, 1);
+});
+
+test("П-37: подтверждение с другой суммой не оплачивает заказ", async () => {
+  const t = await freshOrder("+79380000012");
+  const res = await webhook(t.p, { amount: t.p.amount - 100 });
+  assert.equal(res.statusCode, 200);
+  assert.equal(t.status().payment_status, "pending");
+  assert.equal(get("SELECT status FROM payments WHERE id=?", t.p.id).status, "mismatch");
+  assert.ok(get("SELECT id FROM audit_log WHERE action='payment.mismatch' AND entity_id=?", String(t.p.id)));
+  assert.ok(get("SELECT id FROM payment_events WHERE payment_id=? AND status='mismatch'", t.p.id), "история статусов");
+  // Платёж с несошедшейся суммой закрыт: можно создать новый, и он оплачивается.
+  const next = json(await app.inject({ method: "POST", url: "/api/payments/create", payload: { orderNumber: t.o.number }, headers: t.headers }));
+  assert.notEqual(next.paymentId, t.p.id);
+  await webhook(get("SELECT * FROM payments WHERE id=?", next.paymentId));
+  assert.equal(t.status().payment_status, "paid");
+});
+
+test("П-39: у платежа есть история статусов", async () => {
+  const { all } = await import("../src/db/index.js");
+  const t = await freshOrder("+79380000013");
+  await webhook(t.p);
+  const events = all("SELECT status FROM payment_events WHERE payment_id=? ORDER BY id", t.p.id);
+  assert.deepEqual(events.map((e) => e.status), ["pending", "succeeded"]);
+});
+
+test("П-36: второй успешный платёж по оплаченному заказу помечается к возврату, заказ не трогается", async () => {
+  const { run } = await import("../src/db/index.js");
+  const t = await freshOrder("+79380000014");
+  await webhook(t.p);
+  assert.equal(t.status().payment_status, "paid");
+  const paidEvents = get("SELECT COUNT(*) AS n FROM order_events WHERE order_id=? AND status='paid'", t.o.id).n;
+
+  // «Застрявший» второй платёж (открыт до оплаты в другой вкладке) тоже приходит успешным.
+  run(`INSERT INTO payments (tenant_id, order_id, provider, provider_id, amount, status, idempotence_key)
+       VALUES (?,?,?,?,?,?,?)`, t.p.tenant_id, t.o.id, "mock", "mock_dup", t.p.amount, "pending", "dup-key");
+  const dup = get("SELECT * FROM payments WHERE provider_id='mock_dup'");
+  await webhook(dup);
+  assert.equal(get("SELECT status FROM payments WHERE id=?", dup.id).status, "needs_refund");
+  assert.ok(get("SELECT id FROM audit_log WHERE action='payment.duplicate' AND entity_id=?", String(t.o.id)));
+  assert.equal(get("SELECT COUNT(*) AS n FROM order_events WHERE order_id=? AND status='paid'", t.o.id).n, paidEvents, "заказ второй раз не «оплачивался»");
+  // Новый платёж по оплаченному заказу не создаётся.
+  const res = await app.inject({ method: "POST", url: "/api/payments/create", payload: { orderNumber: t.o.number }, headers: t.headers });
+  assert.equal(res.statusCode, 400);
 });
