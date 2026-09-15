@@ -34,13 +34,18 @@ export function applyPromo(tenantId, code, subtotal) {
 export function createOrder({ tenant, user, cart, customer, deliveryCost = 0, promoCode = null, source = "web" }) {
   const view = cartView(tenant.id, cart, user);
   if (!view.items.length) throw badRequest("Корзина пуста");
+  // Позиция без цены — это заявка менеджеру, а не заказ: иначе она попала бы
+  // в заказ по 0 ₽ и могла бы «оплатиться» вместе с остальными.
+  if (view.hasOnRequest) throw badRequest("В корзине есть позиции без цены — оформите их заявкой, менеджер посчитает и пришлёт счёт");
 
   return tx(() => {
     const prices = priceMapFor(tenant.id, tierFor(user), view.items.map((i) => i.variantId));
     let subtotal = 0;
     const rows = [];
     for (const item of view.items) {
-      const price = unitPrice(prices.get(item.variantId), item.qty) ?? 0;
+      const price = unitPrice(prices.get(item.variantId), item.qty);
+      // Страховка внутри транзакции: цена могла исчезнуть между проверкой и записью.
+      if (price === null) throw badRequest("Цена позиции уточняется менеджером — оформите заявкой");
       const total = price * item.qty;
       subtotal += total;
       rows.push({ variant_id: item.variantId, product_name: item.name, unit: item.unit, qty: item.qty, price, total });

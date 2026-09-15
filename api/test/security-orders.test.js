@@ -126,3 +126,38 @@ test("клиент не может изменить чужой (и свой) з�
   const untouched = json(await view(orderB.number, { authorization: `Bearer ${B.accessToken}` }));
   assert.equal(untouched.status, "new");
 });
+
+test("П-13: позиция «по запросу» не превращается в заказ по 0 ₽", async () => {
+  const { get } = await import("../src/db/index.js");
+  const list = json(await app.inject("/api/catalog/products?limit=100")).items;
+  const onRequest = list.flatMap((p) => p.variants).find((v) => v.priceOnRequest);
+  const priced = list.flatMap((p) => p.variants).find((v) => !v.priceOnRequest);
+  assert.ok(onRequest && priced, "в демо-каталоге есть и позиции с ценой, и без");
+
+  const before = get("SELECT COUNT(*) AS n FROM orders").n;
+  // Платная позиция + позиция без цены: раньше вторая уходила в заказ по 0 ₽.
+  const first = await app.inject({ method: "POST", url: "/api/cart/items", payload: { variantId: priced.id, qty: 1 } });
+  const cookie = first.cookies.find((c) => c.name === "hgz_cart").value;
+  const headers = { cookie: `hgz_cart=${cookie}` };
+  const cart = json(await app.inject({ method: "POST", url: "/api/cart/items", headers, payload: { variantId: onRequest.id, qty: 5 } }));
+  assert.equal(cart.hasOnRequest, true);
+
+  const res = await app.inject({
+    method: "POST", url: "/api/orders", headers,
+    payload: { customer: { name: "Хитрый Клиент", phone: "+79001000009" }, consent: true },
+  });
+  assert.equal(res.statusCode, 400);
+  assert.match(json(res).error.message, /заявк/i);
+  assert.equal(get("SELECT COUNT(*) AS n FROM orders").n, before, "заказ не создан");
+  assert.equal(get("SELECT COUNT(*) AS n FROM order_items WHERE price=0").n, 0, "позиций по 0 ₽ в базе нет");
+
+  // Корзина цела: убрал позицию без цены — заказ проходит.
+  const item = cart.items.find((i) => i.variantId === onRequest.id);
+  await app.inject({ method: "DELETE", url: `/api/cart/items/${item.id}`, headers });
+  const ok = await app.inject({
+    method: "POST", url: "/api/orders", headers,
+    payload: { customer: { name: "Честный Клиент", phone: "+79001000009" }, consent: true },
+  });
+  assert.equal(ok.statusCode, 201);
+  assert.ok(json(ok).total > 0);
+});
