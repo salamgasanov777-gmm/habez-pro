@@ -1,0 +1,13 @@
+# Ночная копия базы, загрузок и ключей (deploy/scripts/backup.sh).
+# Работает от root: пользователь службы hgz в /var/backups/hgz писать не может —
+# взлом приложения не даёт удалить копии.
+[Unit]
+Description=Habez Gips — резервная копия
+After=network-online.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=-/etc/hgz/backup.env
+ExecStart=/srv/hgz/current/deploy/scripts/backup.sh daily
+Nice=10
+IOSchedulingClass=idle

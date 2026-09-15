@@ -50,6 +50,14 @@ const STEPS = [
   }],
 ];
 
+// --check: только сказать, сколько миграций ещё не применено (для deploy.sh:
+// останавливать ли службу). Ничего не меняет.
+if (process.argv.includes("--check")) {
+  const pending = STEPS.filter(([name]) => !get("SELECT name FROM migrations WHERE name=?", name));
+  console.log(pending.length);
+  process.exit(0);
+}
+
 for (const [name, sql] of STEPS) {
   if (get("SELECT name FROM migrations WHERE name=?", name)) continue;
   typeof sql === "function" ? sql() : db.exec(sql);

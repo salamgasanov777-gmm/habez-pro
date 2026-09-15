@@ -1,0 +1,64 @@
+# Habez Gips API — служба systemd для production.
+#   sudo cp deploy/systemd/hgz.service /etc/systemd/system/ && sudo systemctl daemon-reload
+#   sudo systemctl enable --now hgz
+#
+# Слушает только 127.0.0.1:4000 — снаружи к нему ходит Caddy.
+# Данные — в /var/lib/hgz (база, загрузки, ключи push), код — в /srv/hgz/current.
+[Unit]
+Description=Habez Gips API (каталог, заказы, панель)
+Documentation=https://github.com/salamgasanov777-gmm/habez-pro
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=hgz
+Group=hgz
+WorkingDirectory=/srv/hgz/current/api
+# Все переменные — в одном файле (root:hgz, 0640).
+EnvironmentFile=/etc/hgz/hgz.env
+# Страховка поверх файла: без этого сервер вёл бы себя как на демо-стенде.
+Environment=NODE_ENV=production
+Environment=HOST=127.0.0.1
+Environment=DATABASE_FILE=/var/lib/hgz/hgz.db
+Environment=UPLOAD_DIR=/var/lib/hgz/uploads
+ExecStart=/usr/bin/node src/server.js
+Restart=always
+RestartSec=3
+# Не чаще 5 перезапусков за 2 минуты — иначе crashloop скрывает проблему.
+StartLimitIntervalSec=120
+StartLimitBurst=5
+TimeoutStopSec=15
+KillSignal=SIGTERM
+
+# Новые файлы базы и загрузок — без прав для «остальных» (0640/0750).
+UMask=0027
+
+# ── Ограничение прав процесса ────────────────────────────────────────────
+NoNewPrivileges=true
+# Вся файловая система только для чтения, кроме данных приложения.
+ProtectSystem=strict
+ReadWritePaths=/var/lib/hgz
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+LockPersonality=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+RestrictNamespaces=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged
+CapabilityBoundingSet=
+AmbientCapabilities=
+# MemoryDenyWriteExecute НЕ включать: JIT Node.js требует W+X.
+
+[Install]
+WantedBy=multi-user.target

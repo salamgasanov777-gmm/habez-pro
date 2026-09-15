@@ -1,0 +1,8 @@
+# Проверка здоровья сервера каждые 5 минут (deploy/scripts/monitor.sh).
+[Unit]
+Description=Habez Gips — мониторинг
+
+[Service]
+Type=oneshot
+EnvironmentFile=-/etc/hgz/backup.env
+ExecStart=/srv/hgz/current/deploy/scripts/monitor.sh

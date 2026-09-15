@@ -1,0 +1,46 @@
+# Проверки при каждом push и pull request: тесты API, сборка витрины (обе
+# версии). Падает при любой ошибке — такой код на сервер не выпускается.
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+
+jobs:
+  test-and-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            api/package-lock.json
+            web/package-lock.json
+
+      - name: Установка зависимостей
+        run: |
+          npm --prefix api ci --no-audit --no-fund
+          npm --prefix web ci --no-audit --no-fund
+
+      - name: Уязвимости в зависимостях (high и выше)
+        run: |
+          npm --prefix api audit --omit=dev --audit-level=high
+          npm --prefix web audit --omit=dev --audit-level=high
+
+      - name: Тесты API
+        run: npm --prefix api test
+
+      - name: Сборка витрины
+        run: npm --prefix web run build
+
+      - name: Сборка автономной версии
+        run: npm --prefix web run build:standalone
+
+      - name: Синтаксис серверных скриптов
+        run: for f in deploy/scripts/*.sh; do bash -n "$f"; done

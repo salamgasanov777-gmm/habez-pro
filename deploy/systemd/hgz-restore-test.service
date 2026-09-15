@@ -1,0 +1,9 @@
+# Ежемесячная проверка, что копии восстанавливаются (deploy/scripts/restore-test.sh).
+[Unit]
+Description=Habez Gips — проверка восстановления из копии
+
+[Service]
+Type=oneshot
+EnvironmentFile=-/etc/hgz/backup.env
+ExecStart=/srv/hgz/current/deploy/scripts/restore-test.sh
+Nice=10
