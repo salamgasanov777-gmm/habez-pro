@@ -6,6 +6,7 @@ import { all, get, insert, run } from "../db/index.js";
 import { decorate, ftsQuery, productBySlugOrId, newArrivals } from "../services/catalog.js";
 import { notFound } from "../lib/errors.js";
 import { paymentsEnabled } from "../payments/index.js";
+import { config } from "../config.js";
 
 // Подбор по задаче: те же пять сценариев, что в каталоге завода.
 export const TASKS = [
@@ -44,6 +45,8 @@ export default async function catalogRoutes(app) {
         // Онлайн-оплата есть только при настроенном провайдере; без него
         // витрина не предлагает «картой онлайн».
         onlinePayment: paymentsEnabled(),
+        // Вход по SMS предлагается, только когда код реально отправляется.
+        phoneLogin: config.notify.phoneLogin,
       },
       categories: categories.filter((c) => c.count > 0),
       tasks: TASKS,

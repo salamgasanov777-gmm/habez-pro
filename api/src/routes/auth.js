@@ -5,7 +5,7 @@ import { z } from "zod";
 import { all, get, insert, run } from "../db/index.js";
 import { config } from "../config.js";
 import { hashPassword, verifyPassword, signJwt, randomToken, sha256, numericCode } from "../lib/crypto.js";
-import { badRequest, unauthorized, conflict, tooMany } from "../lib/errors.js";
+import { ApiError, badRequest, unauthorized, conflict, tooMany } from "../lib/errors.js";
 import { sendSms } from "../lib/notify.js";
 
 const REFRESH_COOKIE = "hgz_rt";
@@ -74,6 +74,7 @@ export default async function authRoutes(app) {
   // Вход по коду. Провайдера SMS нет — код возвращается в ответе только
   // в режиме разработки, в проде он уходит в SMS и наружу не попадает.
   app.post("/api/auth/otp/request", { config: { rateLimit: { max: 5, timeWindow: "10 minutes" } } }, async (req) => {
+    if (!config.notify.phoneLogin) throw new ApiError(503, "phone_login_unavailable", "Вход по телефону пока недоступен — войдите по почте");
     const { phone } = z.object({ phone: phoneSchema }).parse(req.body);
 
     const recent = get(
@@ -92,6 +93,7 @@ export default async function authRoutes(app) {
   });
 
   app.post("/api/auth/otp/verify", { config: { rateLimit: { max: 20, timeWindow: "10 minutes" } } }, async (req, reply) => {
+    if (!config.notify.phoneLogin) throw new ApiError(503, "phone_login_unavailable", "Вход по телефону пока недоступен — войдите по почте");
     const { phone, code, name } = z.object({
       phone: phoneSchema, code: z.string().length(6), name: z.string().max(120).optional(),
     }).parse(req.body);

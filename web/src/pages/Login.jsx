@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate, useSearchParams, Link } from "react-router-dom";
 import { useApp } from "../store.jsx";
 import * as api from "../lib/api.js";
@@ -7,12 +7,16 @@ import { phoneMask } from "../lib/format.js";
 // Два входа рядом: клиенту — код на телефон, сотруднику — почта и пароль.
 // Заставлять прораба придумывать пароль ради одного заказа не нужно.
 export default function Login() {
-  const { login, toast } = useApp();
+  const { login, toast, meta } = useApp();
   const nav = useNavigate();
   const [params] = useSearchParams();
   const next = params.get("next") || "/account";
 
-  const [mode, setMode] = useState("phone");
+  // Вход по SMS показываем, только когда сервер реально отправляет коды.
+  // Пока SMS-провайдера нет — остаётся вход по почте, без иллюзии рабочего SMS.
+  const phoneLogin = meta?.settings?.phoneLogin === true;
+  const [mode, setMode] = useState(phoneLogin ? "phone" : "email");
+  useEffect(() => { if (!phoneLogin && mode === "phone") setMode("email"); }, [phoneLogin, mode]);
   const [phone, setPhone] = useState("");
   const [code, setCode] = useState("");
   const [sent, setSent] = useState(null);
@@ -55,12 +59,14 @@ export default function Login() {
       <div className="panel stack">
         <h1>{register ? "Регистрация" : "Вход"}</h1>
 
-        <div className="row" style={{ gap: 6 }}>
-          <button className={`chip ${mode === "phone" ? "on" : ""}`} onClick={() => setMode("phone")}>По телефону</button>
-          <button className={`chip ${mode === "email" ? "on" : ""}`} onClick={() => setMode("email")}>По почте</button>
-        </div>
+        {phoneLogin && (
+          <div className="row" style={{ gap: 6 }}>
+            <button className={`chip ${mode === "phone" ? "on" : ""}`} onClick={() => setMode("phone")}>По телефону</button>
+            <button className={`chip ${mode === "email" ? "on" : ""}`} onClick={() => setMode("email")}>По почте</button>
+          </div>
+        )}
 
-        {mode === "phone" ? (
+        {phoneLogin && mode === "phone" ? (
           !sent ? (
             <form className="stack" onSubmit={requestCode}>
               <label className="field"><span>Телефон</span>

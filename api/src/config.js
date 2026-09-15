@@ -69,6 +69,11 @@ export const config = {
     // по коду работает на демо-стенде без договора с SMS-сервисом.
     smsProvider: env.SMS_PROVIDER || "log",
     emailProvider: env.EMAIL_PROVIDER || "log",
+    // Вход по коду из SMS доступен покупателям, только если код реально
+    // отправляется. В режиме «log» он виден лишь в журнале сервера — на
+    // живом сайте это выглядело бы как сломанный вход, поэтому там его нет.
+    // Вне production код возвращается в ответе (devCode) — для разработки и тестов.
+    get phoneLogin() { return this.smsProvider !== "log" || env.NODE_ENV !== "production"; },
     telegramBotToken: env.TELEGRAM_BOT_TOKEN || "",
     telegramChatId: env.TELEGRAM_CHAT_ID || "",
     // Push в приложение. Пара ключей VAPID — подпись сервера, по которой
