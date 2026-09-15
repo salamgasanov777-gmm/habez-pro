@@ -6,6 +6,7 @@ import { execFileSync, spawnSync } from "node:child_process";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { rmSync } from "node:fs";
+import { prodDataDir, prodEnv } from "./helpers/prod-env.js";
 
 const apiRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const testDb = resolve(apiRoot, "var/test-pay-off.db");
@@ -63,7 +64,7 @@ test("демо-страницы банка и вебхуков не сущест
 test("в production сервер с PAYMENT_PROVIDER=mock не стартует", async () => {
   const run = (provider) => spawnSync("node", ["-e", "import('./src/config.js').then(() => process.exit(0))"], {
     cwd: apiRoot, encoding: "utf8",
-    env: { ...process.env, NODE_ENV: "production", JWT_SECRET: "x".repeat(64), PAYMENT_PROVIDER: provider },
+    env: prodEnv(prodDataDir("hgz-pay-off-"), { PAYMENT_PROVIDER: provider }),
   });
   const mock = run("mock");
   assert.equal(mock.status, 1);

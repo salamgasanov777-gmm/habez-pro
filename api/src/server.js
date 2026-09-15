@@ -13,7 +13,7 @@ import { config } from "./config.js";
 import { ApiError } from "./lib/errors.js";
 import { DEMO_USERS } from "./lib/demo-users.js";
 import { verifyPassword } from "./lib/crypto.js";
-import { all } from "./db/index.js";
+import { all, get } from "./db/index.js";
 import tenantPlugin from "./plugins/tenant.js";
 import authPlugin from "./plugins/auth.js";
 
@@ -40,6 +40,10 @@ export function demoCredentialsPresent() {
 
 export async function build() {
   if (config.isProd) {
+    // База без схемы — забыли `npm run migrate`. Говорим это прямо.
+    if (!get("SELECT name FROM sqlite_master WHERE type='table' AND name='users'")) {
+      throw new Error(`[db] база ${config.db.file} не инициализирована: выполните npm run migrate (и npm run seed) до запуска`);
+    }
     const found = demoCredentialsPresent();
     if (found.length) {
       const msg = `[security] в базе демо-учётные записи с известными паролями: ${found.join(", ")}. ` +
@@ -67,7 +71,12 @@ export async function build() {
     keyGenerator: (req) => `${req.ip}:${req.tenant?.id ?? 0}`,
   });
 
-  mkdirSync(config.uploads.dir, { recursive: true });
+  try {
+    mkdirSync(config.uploads.dir, { recursive: true });
+  } catch (e) {
+    throw new Error(`[uploads] не удалось создать каталог ${config.uploads.dir}: ${e.code}. ` +
+      "Создайте его и отдайте пользователю службы: mkdir -p /var/lib/hgz/uploads && chown -R hgz:hgz /var/lib/hgz");
+  }
   await app.register(fastifyStatic, {
     root: config.uploads.dir, prefix: "/uploads/", decorateReply: false,
     cacheControl: true, maxAge: "30d", immutable: true,

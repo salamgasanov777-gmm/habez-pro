@@ -6,14 +6,15 @@ import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { rmSync } from "node:fs";
 
-const apiRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const dbDemo = resolve(apiRoot, "var/test-cred-demo.db");
-const dbProd = resolve(apiRoot, "var/test-cred-prod.db");
+import { prodDataDir, prodEnv as prodEnvFor } from "./helpers/prod-env.js";
 
-const prodEnv = (file) => ({
-  ...process.env, DATABASE_FILE: file, NODE_ENV: "production", LOG_LEVEL: "silent",
-  JWT_SECRET: "x".repeat(64), PAYMENT_PROVIDER: "none",
-});
+const apiRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const demoData = prodDataDir("hgz-cred-demo-");
+const prodData = prodDataDir("hgz-cred-prod-");
+const dbDemo = demoData.db;
+const dbProd = prodData.db;
+
+const prodEnv = (file) => prodEnvFor(file === dbDemo ? demoData : prodData);
 
 function fresh(file, demo) {
   for (const s of ["", "-wal", "-shm"]) rmSync(file + s, { force: true });

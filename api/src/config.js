@@ -1,7 +1,7 @@
 // Конфигурация читается из окружения один раз при старте. Ни один модуль
 // не лезет в process.env напрямую — так видно весь список настроек сразу.
-import { readFileSync, existsSync } from "node:fs";
-import { resolve, dirname } from "node:path";
+import { readFileSync, existsSync, realpathSync } from "node:fs";
+import { resolve, dirname, relative, isAbsolute } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -42,6 +42,9 @@ export const config = {
 
   // Пути из .env бывают относительными — раскрываем их от корня api,
   // иначе запуск из другой директории ломает и базу, и раздачу файлов.
+  // В production умолчаний нет: база и загрузки обязаны лежать вне
+  // git-checkout (см. проверку ниже), иначе `git clean` или переустановка
+  // папки уничтожит заказы.
   db: { file: resolve(root, env.DATABASE_FILE || "var/hgz.db") },
   uploads: { dir: resolve(root, env.UPLOAD_DIR || "var/uploads"), maxBytes: Number(env.UPLOAD_MAX_BYTES || 10 * 1024 * 1024) },
 
@@ -94,13 +97,34 @@ export const config = {
   logLevel: env.LOG_LEVEL || (env.NODE_ENV === "production" ? "info" : "debug"),
 };
 
+// Корень репозитория (checkout): база и загрузки в production не могут лежать
+// внутри него. Сравниваем по реальным путям, чтобы симлинки не обманули.
+const insideCheckout = (path) => {
+  const real = (p) => { try { return realpathSync(p); } catch { return p; } };
+  const rel = relative(real(resolve(root, "..")), real(path));
+  return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
+};
+
 if (config.isProd) {
   const missing = [];
   if (config.auth.jwtSecret.startsWith("dev-only")) missing.push("JWT_SECRET");
+  if (!env.DATABASE_FILE) missing.push("DATABASE_FILE");
+  if (!env.UPLOAD_DIR) missing.push("UPLOAD_DIR");
   if (config.payments.provider === "yookassa" && !config.payments.yookassa.shopId) missing.push("YOOKASSA_SHOP_ID");
   if (missing.length) {
     console.error(`[config] в production не заданы обязательные переменные: ${missing.join(", ")}`);
     process.exit(1);
+  }
+  // База внутри checkout — это база, которую сотрёт следующее обновление.
+  for (const [name, path] of [["DATABASE_FILE", config.db.file], ["UPLOAD_DIR", config.uploads.dir]]) {
+    if (!isAbsolute(env[name] || "")) {
+      console.error(`[config] ${name} в production должен быть абсолютным путём вне репозитория, например /var/lib/hgz/${name === "DATABASE_FILE" ? "hgz.db" : "uploads"}`);
+      process.exit(1);
+    }
+    if (insideCheckout(path)) {
+      console.error(`[config] ${name}=${path} лежит внутри git-checkout (${resolve(root, "..")}). В production данные хранятся отдельно: /var/lib/hgz`);
+      process.exit(1);
+    }
   }
   // Имитация оплаты на живом сайте — это поддельная страница банка и
   // возможность пометить заказ оплаченным без денег. В production её нет.

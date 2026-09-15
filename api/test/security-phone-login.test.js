@@ -7,13 +7,15 @@ import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { rmSync } from "node:fs";
 
+import { prodDataDir, prodEnv } from "./helpers/prod-env.js";
+
 const apiRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const dbFile = resolve(apiRoot, "var/test-phone-login.db");
+const data = prodDataDir("hgz-phone-login-");
+const dbFile = data.db;
 
 const inProd = (script, extra = {}) => spawnSync("node", ["--input-type=module", "-e", script], {
   cwd: apiRoot, encoding: "utf8",
-  env: { ...process.env, DATABASE_FILE: dbFile, NODE_ENV: "production", LOG_LEVEL: "silent",
-    JWT_SECRET: "x".repeat(64), PAYMENT_PROVIDER: "none", SMS_PROVIDER: "log", ...extra },
+  env: prodEnv(data, { SMS_PROVIDER: "log", ...extra }),
 });
 
 test("production без SMS-провайдера: витрина не предлагает вход по телефону, маршруты отвечают 503", () => {

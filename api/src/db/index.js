@@ -1,13 +1,25 @@
 // Тонкий слой над node:sqlite. ORM здесь не нужен: запросов немного,
 // они простые, а прямой SQL читается и профилируется без посредника.
 import { DatabaseSync } from "node:sqlite";
-import { mkdirSync } from "node:fs";
+import { mkdirSync, chmodSync, existsSync } from "node:fs";
 import { dirname } from "node:path";
 import { config } from "../config.js";
 
-mkdirSync(dirname(config.db.file), { recursive: true });
+// Каталог базы: создаём, если можем; если нет прав — говорим, что сделать,
+// вместо невнятного EACCES из глубины драйвера.
+try {
+  mkdirSync(dirname(config.db.file), { recursive: true });
+} catch (e) {
+  console.error(`[db] не удалось создать каталог базы ${dirname(config.db.file)}: ${e.code}. ` +
+    "Создайте его заранее и отдайте пользователю службы: mkdir -p /var/lib/hgz && chown hgz:hgz /var/lib/hgz && chmod 750 /var/lib/hgz");
+  process.exit(1);
+}
 
+const fresh = !existsSync(config.db.file);
 export const db = new DatabaseSync(config.db.file);
+// Новый файл базы — только владельцу и группе службы; umask процесса может
+// быть мягче, чем нужно.
+if (fresh && config.isProd) { try { chmodSync(config.db.file, 0o640); } catch { /* не критично */ } }
 db.exec("PRAGMA journal_mode = WAL");
 db.exec("PRAGMA foreign_keys = ON");
 db.exec("PRAGMA busy_timeout = 5000");

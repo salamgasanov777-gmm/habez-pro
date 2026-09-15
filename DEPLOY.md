@@ -60,13 +60,30 @@ WEB_URL=https://catalog.habez.ru
 CORS_ORIGINS=https://catalog.habez.ru
 JWT_SECRET=<строка из команды выше>
 COOKIE_SECURE=true
+DATABASE_FILE=/var/lib/hgz/hgz.db
+UPLOAD_DIR=/var/lib/hgz/uploads
+```
+
+База и загруженные файлы живут **вне папки с кодом** — иначе следующее
+обновление или `git clean` их уничтожит. В production сервер без этих двух
+переменных, с относительными путями или с путями внутри репозитория не
+стартует. Каталог создаётся заранее и принадлежит пользователю службы:
+
+```bash
+sudo mkdir -p /var/lib/hgz/uploads
+sudo chown -R www-data:www-data /var/lib/hgz
+sudo chmod 750 /var/lib/hgz
 ```
 
 **4. Создать базу и перенести каталог**
 
 ```bash
-npm run migrate && npm run seed
+DATABASE_FILE=/var/lib/hgz/hgz.db UPLOAD_DIR=/var/lib/hgz/uploads npm run migrate
+DATABASE_FILE=/var/lib/hgz/hgz.db UPLOAD_DIR=/var/lib/hgz/uploads npm run seed
 ```
+
+(Переменные из `.env` подхватываются сами, если файл уже заполнен — тогда
+префикс не нужен.)
 
 Без `--demo-prices`: настоящих цен у нас нет, товары получат «цена по запросу».
 
@@ -100,6 +117,10 @@ ExecStart=/usr/bin/node src/server.js
 Restart=always
 RestartSec=5
 Environment=NODE_ENV=production
+Environment=DATABASE_FILE=/var/lib/hgz/hgz.db
+Environment=UPLOAD_DIR=/var/lib/hgz/uploads
+# Новые файлы базы и загрузок — без прав для «остальных».
+UMask=0027
 
 [Install]
 WantedBy=multi-user.target
