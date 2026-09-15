@@ -55,7 +55,7 @@ const payload = {
   generatedAt: new Date().toISOString(),
   hasPrices: withPrices,
   tenant: {
-    slug: tenant.slug, name: tenant.name, phone: tenant.phone,
+    slug: tenant.slug, name: tenant.name, legalName: tenant.legal_name, phone: tenant.phone,
     email: tenant.email, address: tenant.address, logo: tenant.logo_url,
     theme: json(tenant.theme, {}),
   },

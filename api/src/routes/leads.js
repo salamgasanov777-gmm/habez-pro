@@ -18,6 +18,8 @@ export default async function leadRoutes(app) {
       withCart: z.boolean().default(false),
       // Ловушка для ботов: поле скрыто в вёрстке, человек его не заполняет.
       website: z.string().max(0).optional(),
+      // 152-ФЗ: без галочки «согласен на обработку данных» заявка не принимается.
+      consent: z.literal(true, { errorMap: () => ({ message: "Нужно согласие на обработку персональных данных" }) }),
     }).parse(req.body);
 
     const payload = { productId: body.productId ?? null };

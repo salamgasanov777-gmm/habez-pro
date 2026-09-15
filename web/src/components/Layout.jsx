@@ -119,6 +119,7 @@ function Footer() {
             <span className="logo-text"><b>{meta?.tenant?.name}</b><span>производитель сухих смесей</span></span>
           </div>
           <p className="dim" style={{ fontSize: 13, margin: 0 }}>{meta?.tenant?.address}</p>
+          <p className="dim" style={{ fontSize: 13, margin: "8px 0 0" }}><Link to="/privacy" className="muted">Политика обработки персональных данных</Link></p>
         </div>
         <div>
           <div className="label" style={{ marginBottom: 8 }}>Каталог</div>

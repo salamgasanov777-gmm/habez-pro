@@ -31,6 +31,8 @@ export default async function orderRoutes(app) {
     const body = z.object({
       customer: customerSchema,
       promoCode: z.string().max(40).optional().nullable(),
+      // 152-ФЗ: без галочки «согласен на обработку данных» заказ не принимается.
+      consent: z.literal(true, { errorMap: () => ({ message: "Нужно согласие на обработку персональных данных" }) }),
     }).parse(req.body);
 
     const cart = getOrCreateCart(req, reply);

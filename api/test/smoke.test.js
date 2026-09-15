@@ -77,7 +77,7 @@ test("корзина, заказ и оплата проходят целиком
   const headers = { cookie: `hgz_cart=${cookie.value}` };
   const orderRes = await app.inject({
     method: "POST", url: "/api/orders", headers,
-    payload: { customer: { name: "Пров Прорабов", phone: "+79381234567", deliveryType: "pickup", kind: "shop", company: "Стройка" } },
+    payload: { customer: { name: "Пров Прорабов", phone: "+79381234567", deliveryType: "pickup", kind: "shop", company: "Стройка" }, consent: true },
   });
   assert.equal(orderRes.statusCode, 201);
   const order = json(orderRes);

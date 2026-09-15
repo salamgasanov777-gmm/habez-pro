@@ -20,12 +20,19 @@ export default function Checkout() {
   const needsCompany = form.kind === "shop" || form.kind === "company";
   const [promo, setPromo] = useState("");
   const [discount, setDiscount] = useState(0);
-  const [payNow, setPayNow] = useState(true);
+  // 152-ФЗ: согласие — отдельная галочка, по умолчанию снята.
+  const [consent, setConsent] = useState(false);
+  // Автономная копия сайта (без сервера): оплатить и отправить заказ некуда,
+  // поэтому оформление собирает заказ в текст для менеджера.
+  const standalone = !!meta?.settings?.standalone;
+  const [payNow, setPayNow] = useState(!standalone);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState(null);
 
   const deliveryCost = form.deliveryType === "delivery" ? (meta?.settings?.deliveryCost ?? 0) : 0;
   const total = Math.max(0, cart.subtotal - discount + deliveryCost);
+  // Цены не опубликованы — это заказ «по запросу», и «К оплате 0 ₽» было бы неправдой.
+  const showPrices = meta?.settings?.showPrices !== false && !cart.hasOnRequest;
   const set = (k) => (e) => setForm({ ...form, [k]: k === "phone" ? phoneMask(e.target.value) : e.target.value });
 
   if (!cart.items.length) return <div className="empty"><h3>Корзина пуста</h3><Link to="/" className="btn">В каталог</Link></div>;
@@ -42,8 +49,17 @@ export default function Checkout() {
     e.preventDefault();
     setBusy(true); setErr(null);
     try {
-      const order = await api.post("/api/orders", { customer: form, promoCode: promo || null });
+      const order = await api.post("/api/orders", { customer: form, promoCode: promo || null, consent });
       await reloadCart();
+
+      if (order.standalone) {
+        // Заказ никуда не ушёл — он лежит текстом у покупателя. Честно
+        // показываем это на итоговой странице, а не «заказ принят».
+        store.set("last-order", { standalone: true, text: order.text });
+        try { await navigator.clipboard.writeText(order.text); } catch { /* покажем текст на странице */ }
+        nav("/checkout/result?standalone=1");
+        return;
+      }
 
       // Гость смотрит свой заказ по номеру и телефону. С платёжной страницы
       // банк возвращает только номер, поэтому телефон запоминаем здесь.
@@ -113,7 +129,7 @@ export default function Checkout() {
               <textarea className="textarea" value={form.comment} onChange={set("comment")} placeholder="Когда удобно принять, нужна ли разгрузка" /></label>
           </section>
 
-          <section className="panel stack">
+          {!standalone && <section className="panel stack">
             <h3>Оплата</h3>
             <label className="row" style={{ cursor: "pointer" }}>
               <input type="radio" checked={payNow} onChange={() => setPayNow(true)} />
@@ -123,7 +139,7 @@ export default function Checkout() {
               <input type="radio" checked={!payNow} onChange={() => setPayNow(false)} />
               <span>Счёт или оплата при получении — менеджер свяжется и подтвердит</span>
             </label>
-          </section>
+          </section>}
         </div>
 
         <aside className="summary">
@@ -131,24 +147,29 @@ export default function Checkout() {
           {cart.items.map((i) => (
             <div className="sum-row" key={i.id}>
               <span className="muted" style={{ maxWidth: "60%" }}>{i.name} × {i.qty}</span>
-              <span className="num">{money(i.total)}</span>
+              {showPrices && <span className="num">{money(i.total)}</span>}
             </div>
           ))}
 
-          <div className="row" style={{ marginTop: 6 }}>
+          {!standalone && <div className="row" style={{ marginTop: 6 }}>
             <input className="input" placeholder="Промокод" value={promo} onChange={(e) => setPromo(e.target.value.toUpperCase())} />
             <button type="button" className="btn btn-sm" onClick={applyPromo}>ОК</button>
-          </div>
+          </div>}
 
           {discount > 0 && <div className="sum-row" style={{ color: "var(--ok)" }}><span>Скидка</span><span className="num">−{money(discount)}</span></div>}
           {deliveryCost > 0 && <div className="sum-row muted"><span>Доставка</span><span className="num">{money(deliveryCost)}</span></div>}
-          <div className="sum-row total"><span>К оплате</span><span>{money(total)}</span></div>
+          <div className="sum-row total"><span>{showPrices ? "К оплате" : "Стоимость"}</span><span>{showPrices ? money(total) : "по запросу"}</span></div>
+
+          <label className="consent" style={{ marginTop: 4 }}>
+            <input type="checkbox" required checked={consent} onChange={(e) => setConsent(e.target.checked)} />
+            <span>Согласен на обработку персональных данных на условиях <Link to="/privacy" target="_blank">политики</Link></span>
+          </label>
 
           {err && <p className="error-text">{err}</p>}
-          <button className="btn btn-primary btn-lg btn-block" disabled={busy}>
-            {busy ? "Оформляем…" : payNow ? "Перейти к оплате" : "Оформить заказ"}
+          <button className="btn btn-primary btn-lg btn-block" disabled={busy || !consent}>
+            {busy ? "Оформляем…" : standalone ? "Собрать заказ для менеджера" : payNow ? "Перейти к оплате" : "Оформить заказ"}
           </button>
-          <p className="hint">{plural(cart.count, "товар", "товара", "товаров")} · нажимая кнопку, вы соглашаетесь на обработку персональных данных</p>
+          <p className="hint">{plural(cart.count, "товар", "товара", "товаров")}{standalone && " · заказ уйдёт менеджеру сообщением или по телефону"}</p>
         </aside>
       </form>
     </main>

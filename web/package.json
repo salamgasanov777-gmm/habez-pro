@@ -8,7 +8,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "build:standalone": "VITE_STANDALONE=1 BASE=/habez-pro/ vite build --outDir dist-standalone && node scripts/pages-fixup.js dist-standalone",
-    "preview:standalone": "vite preview --outDir dist-standalone --port 4173"
+    "preview:standalone": "BASE=/habez-pro/ vite preview --outDir dist-standalone --port 4173"
   },
   "dependencies": {
     "qrcode-generator": "^2.0.4",

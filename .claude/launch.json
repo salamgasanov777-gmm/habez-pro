@@ -4,14 +4,35 @@
     {
       "name": "hgz-api",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["--prefix", "api", "run", "start"],
+      "runtimeArgs": [
+        "--prefix",
+        "api",
+        "run",
+        "start"
+      ],
       "port": 4000
     },
     {
       "name": "hgz-web",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["--prefix", "web", "run", "dev"],
+      "runtimeArgs": [
+        "--prefix",
+        "web",
+        "run",
+        "dev"
+      ],
       "port": 5173
+    },
+    {
+      "name": "hgz-standalone",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "--prefix",
+        "web",
+        "run",
+        "preview:standalone"
+      ],
+      "port": 4173
     }
   ]
 }

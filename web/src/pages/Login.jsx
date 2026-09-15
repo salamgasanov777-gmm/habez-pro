@@ -101,6 +101,9 @@ export default function Login() {
         <p className="hint" style={{ textAlign: "center" }}>
           Работаете с заводом как дилер? <Link to="/?dealer=1" style={{ color: "var(--accent)" }}>Оставьте заявку</Link> — включим дилерские цены.
         </p>
+        <p className="hint" style={{ textAlign: "center" }}>
+          Входя в кабинет, вы соглашаетесь на обработку персональных данных на условиях <Link to="/privacy">политики</Link>.
+        </p>
       </div>
     </main>
   );

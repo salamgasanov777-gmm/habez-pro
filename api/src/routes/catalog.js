@@ -29,7 +29,7 @@ export default async function catalogRoutes(app) {
     const settings = JSON.parse(req.tenant.settings || "{}");
     const payload = {
       tenant: {
-        slug: req.tenant.slug, name: req.tenant.name, phone: req.tenant.phone,
+        slug: req.tenant.slug, name: req.tenant.name, legalName: req.tenant.legal_name, phone: req.tenant.phone,
         email: req.tenant.email, address: req.tenant.address, logo: req.tenant.logo_url,
         theme: JSON.parse(req.tenant.theme || "{}"),
       },

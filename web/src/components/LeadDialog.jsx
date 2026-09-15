@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Link } from "react-router-dom";
 import Modal from "./Modal.jsx";
 import { useApp } from "../store.jsx";
 import * as api from "../lib/api.js";
@@ -19,6 +20,8 @@ export default function LeadDialog({ kind = "quote", productId, withCart, onClos
     name: user?.name || "", phone: user?.phone ? phoneMask(user.phone) : "",
     company: user?.company || "", message: "", website: "",
   });
+  // 152-ФЗ: согласие — отдельная галочка, по умолчанию снята.
+  const [consent, setConsent] = useState(false);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState(null);
   const set = (k) => (e) => setForm({ ...form, [k]: k === "phone" ? phoneMask(e.target.value) : e.target.value });
@@ -27,7 +30,7 @@ export default function LeadDialog({ kind = "quote", productId, withCart, onClos
     e.preventDefault();
     setBusy(true); setErr(null);
     try {
-      const res = await api.post("/api/leads", { kind, productId, withCart, ...form });
+      const res = await api.post("/api/leads", { kind, productId, withCart, ...form, consent });
       // Без сервера отправлять некуда: открываем готовое сообщение менеджеру
       // в WhatsApp — человек только нажимает «отправить».
       if (res?.whatsapp) {
@@ -70,13 +73,15 @@ export default function LeadDialog({ kind = "quote", productId, withCart, onClos
         <input tabIndex={-1} autoComplete="off" value={form.website} onChange={set("website")}
           style={{ position: "absolute", left: "-9999px" }} aria-hidden="true" />
 
+        <label className="consent">
+          <input type="checkbox" required checked={consent} onChange={(e) => setConsent(e.target.checked)} />
+          <span>Согласен на обработку персональных данных на условиях <Link to="/privacy" target="_blank">политики</Link></span>
+        </label>
+
         {err && <p className="error-text">{err}</p>}
-        <button className="btn btn-primary btn-lg btn-block" disabled={busy}>
+        <button className="btn btn-primary btn-lg btn-block" disabled={busy || !consent}>
           {busy ? "Отправляем…" : "Отправить заявку"}
         </button>
-        <p className="hint" style={{ textAlign: "center" }}>
-          Нажимая кнопку, вы соглашаетесь на обработку персональных данных.
-        </p>
       </form>
     </Modal>
   );

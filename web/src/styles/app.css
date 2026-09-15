@@ -165,7 +165,21 @@ h3 { font-size: 16px; }
 .input.err { border-color: var(--danger); }
 .textarea { min-height: 92px; resize: vertical; }
 .hint { font-size: 12.5px; color: var(--ink-3); }
+.hint a { color: inherit; text-decoration: underline; text-underline-offset: 2px; }
 .error-text { font-size: 13px; color: var(--danger); }
+
+/* Согласие на обработку данных (152-ФЗ): галочка перед кнопкой отправки. */
+.consent { display: flex; gap: 10px; align-items: flex-start; font-size: 13px; color: var(--ink-2); cursor: pointer; line-height: 1.4; }
+.consent input { margin: 2px 0 0; flex: none; width: 16px; height: 16px; accent-color: var(--accent); }
+.consent a { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; }
+
+/* Длинный текст: политика, документы. */
+.prose h2 { font-size: 18px; margin: 26px 0 8px; }
+.prose p, .prose li { font-size: 15px; line-height: 1.55; color: var(--ink-2); }
+.prose p { margin: 8px 0; }
+.prose ul { margin: 8px 0; padding-left: 22px; }
+.prose li { margin: 4px 0; }
+.prose a { color: var(--accent); }
 
 /* ── Шапка ────────────────────────────────────────────────────────────── */
 

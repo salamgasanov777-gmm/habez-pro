@@ -1,13 +1,53 @@
 import { useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
+import { useApp } from "../store.jsx";
 import * as api from "../lib/api.js";
 import { store } from "../lib/storage.js";
 import { money, ORDER_LABEL, PAY_LABEL } from "../lib/format.js";
 import { Check } from "../components/Icons.jsx";
 
+// Автономная копия сайта: заказ не отправлен, а собран текстом. Говорим это
+// прямо и даём два пути — скопировать текст и позвонить в отдел продаж.
+function StandaloneResult() {
+  const { meta, toast } = useApp();
+  const remembered = store.get("last-order", {}) || {};
+  const text = remembered.text || "";
+  const phone = meta?.tenant?.phone;
+  const copy = async () => {
+    try { await navigator.clipboard.writeText(text); toast("Заказ скопирован"); }
+    catch { toast("Скопировать не вышло — выделите текст вручную", "err"); }
+  };
+  return (
+    <main className="page" style={{ maxWidth: 640, padding: "40px 20px 60px" }}>
+      <div className="panel" style={{ textAlign: "center" }}>
+        <h1>Заказ собран</h1>
+        <p className="muted" style={{ marginTop: 8 }}>
+          Эта версия каталога работает без сервера, поэтому заказ не отправляется сам.
+          Текст заказа скопирован — вставьте его в сообщение менеджеру или позвоните в отдел продаж.
+        </p>
+        {text && (
+          <pre style={{ textAlign: "left", whiteSpace: "pre-wrap", fontSize: 14, marginTop: 18, padding: 14,
+            background: "var(--paper)", borderRadius: 12 }}>{text}</pre>
+        )}
+        <div className="row" style={{ justifyContent: "center", marginTop: 18, flexWrap: "wrap" }}>
+          {text && <button className="btn" onClick={copy}>Скопировать ещё раз</button>}
+          {phone && <a className="btn btn-primary" href={`tel:${phone}`}>Позвонить {phone}</a>}
+        </div>
+        <div className="row" style={{ justifyContent: "center", marginTop: 14 }}>
+          <Link to="/" className="btn btn-ghost">В каталог</Link>
+        </div>
+      </div>
+    </main>
+  );
+}
+
 export default function CheckoutResult() {
   const [params] = useSearchParams();
-  const number = params.get("order");
+  if (params.get("standalone")) return <StandaloneResult />;
+  return <ServerResult number={params.get("order")} params={params} />;
+}
+
+function ServerResult({ number, params }) {
   // Телефон приходит из адреса, а после возврата из банка — из памяти браузера,
   // куда его положило оформление заказа.
   const remembered = store.get("last-order", {}) || {};

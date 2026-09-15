@@ -107,7 +107,7 @@ test("подписанное устройство получает заказ", 
   const before = received.length;
   const order = await app.inject({
     method: "POST", url: "/api/orders", headers: { cookie: `hgz_cart=${cookie.value}` },
-    payload: { customer: { name: "Пров Прорабов", phone: "+79381234567", deliveryType: "pickup" } },
+    payload: { customer: { name: "Пров Прорабов", phone: "+79381234567", deliveryType: "pickup" }, consent: true },
   });
   assert.equal(order.statusCode, 201);
 
