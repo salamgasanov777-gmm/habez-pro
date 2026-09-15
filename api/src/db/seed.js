@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 import { db, get, insert, run, tx } from "./index.js";
 import { hashPassword } from "../lib/crypto.js";
 import { reindexProduct } from "../services/catalog.js";
+import { DEMO_USERS } from "../lib/demo-users.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const legacy = JSON.parse(readFileSync(resolve(here, "legacy-products.json"), "utf8"));
@@ -67,11 +68,11 @@ tx(() => {
   }
 
   // ── Учётные записи ────────────────────────────────────────────────────────
-  const users = [
-    { email: "admin@habez.local", name: "Администратор", role: "owner", password: "admin12345" },
-    { email: "manager@habez.local", name: "Менеджер отдела продаж", role: "manager", password: "manager12345" },
-    { email: "dealer@habez.local", name: "Дилер «СтройБаза»", role: "dealer", price_tier: "dealer", company: "ООО СтройБаза", password: "dealer12345" },
-  ];
+  // Демо-пользователи с известными паролями — только для демо-стенда
+  // (--demo-prices). Боевой сид учётных записей не создаёт: владельца заводит
+  // команда `npm run create-owner`, а сервер в production с этими записями
+  // не стартует (см. server.js).
+  const users = withDemoPrices ? DEMO_USERS : [];
   for (const u of users) {
     if (get("SELECT id FROM users WHERE tenant_id=? AND email=?", tenant.id, u.email)) continue;
     insert("users", {
@@ -160,5 +161,7 @@ tx(() => {
   console.log(`[seed] товаров добавлено: ${created}, всего в базе: ${get("SELECT COUNT(*) AS n FROM products").n}`);
 });
 
-console.log(`[seed] готово. Вход: admin@habez.local / admin12345${withDemoPrices ? "  ·  демо-цены проставлены" : "  ·  цены «по запросу» (реальных цен нет)"}`);
+console.log(withDemoPrices
+  ? `[seed] готово. Демо-стенд: вход ${DEMO_USERS[0].email} / ${DEMO_USERS[0].password}, демо-цены проставлены`
+  : "[seed] готово. Цены «по запросу» (реальных цен нет). Учётных записей нет — владелец создаётся: npm run create-owner -- почта");
 db.close();

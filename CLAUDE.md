@@ -29,7 +29,10 @@ cd api && npm install && npm run reset && npm start   # сервер, localhost:
 cd web && npm install && npm run dev                  # витрина, localhost:5173
 ```
 
-Панель: `localhost:5173/admin`, вход `admin@habez.local` / `admin12345`.
+Панель: `localhost:5173/admin`, вход `admin@habez.local` / `admin12345` —
+**только на демо-стенде** (`reset` = `seed:demo`). На сервере демо-записей
+нет и быть не должно: production с ними не стартует, владелец создаётся
+`npm run create-owner -- почта` (запускает владелец сам).
 Тесты: `npm --prefix api test` (должно быть 13 из 13).
 
 ## Как обновить сайт

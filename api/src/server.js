@@ -11,6 +11,9 @@ import { resolve } from "node:path";
 
 import { config } from "./config.js";
 import { ApiError } from "./lib/errors.js";
+import { DEMO_USERS } from "./lib/demo-users.js";
+import { verifyPassword } from "./lib/crypto.js";
+import { all } from "./db/index.js";
 import tenantPlugin from "./plugins/tenant.js";
 import authPlugin from "./plugins/auth.js";
 
@@ -26,7 +29,26 @@ import adminRoutes from "./routes/admin.js";
 import pushRoutes from "./routes/push.js";
 import { openapi } from "./openapi.js";
 
+// Демо-пароли из README не должны работать на живом сервере. Если база
+// приехала с демо-стенда вместе с такими записями — в production не стартуем,
+// а говорим, что сделать.
+export function demoCredentialsPresent() {
+  const emails = DEMO_USERS.map((u) => u.email);
+  const rows = all(`SELECT email, password_hash FROM users WHERE status='active' AND email IN (${emails.map(() => "?").join(",")})`, ...emails);
+  return rows.filter((r) => verifyPassword(DEMO_USERS.find((u) => u.email === r.email).password, r.password_hash)).map((r) => r.email);
+}
+
 export async function build() {
+  if (config.isProd) {
+    const found = demoCredentialsPresent();
+    if (found.length) {
+      const msg = `[security] в базе демо-учётные записи с известными паролями: ${found.join(", ")}. ` +
+        "В production так стартовать нельзя. Удалите или заблокируйте их и создайте владельца: npm run create-owner -- почта";
+      console.error(msg);
+      throw new Error(msg);
+    }
+  }
+
   const app = Fastify({
     logger: { level: config.logLevel, ...(config.isProd ? {} : { transport: undefined }) },
     trustProxy: true,
