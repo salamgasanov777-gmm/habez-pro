@@ -10,7 +10,10 @@ export default function Login() {
   const { login, toast, meta } = useApp();
   const nav = useNavigate();
   const [params] = useSearchParams();
-  const next = params.get("next") || "/account";
+  // После входа возвращаем только внутрь сайта: «next» из адреса может
+  // подставить кто угодно, а «//чужой-сайт» браузер понял бы как внешний.
+  const rawNext = params.get("next") || "";
+  const next = /^\/(?![\/\\])/.test(rawNext) ? rawNext : "/account";
 
   // Вход по SMS показываем, только когда сервер реально отправляет коды.
   // Пока SMS-провайдера нет — остаётся вход по почте, без иллюзии рабочего SMS.
