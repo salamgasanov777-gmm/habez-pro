@@ -4,6 +4,8 @@ import { all, get, insert, run, tx } from "../db/index.js";
 import { priceMapFor, tierFor, unitPrice } from "./pricing.js";
 import { cartView } from "./cart.js";
 import { badRequest, notFound } from "../lib/errors.js";
+import { randomToken, sha256 } from "../lib/crypto.js";
+import { timingSafeEqual } from "node:crypto";
 
 export function nextOrderNumber(tenantId, prefix = "ЗК") {
   const d = new Date();
@@ -46,6 +48,10 @@ export function createOrder({ tenant, user, cart, customer, deliveryCost = 0, pr
 
     const { discount, promo } = applyPromo(tenant.id, promoCode, subtotal);
 
+    // Секрет доступа выдаётся ровно один раз — в ответе на оформление.
+    // В базе только хеш: утечка базы не открывает чужие заказы.
+    const accessToken = randomToken(32);
+
     const orderId = insert("orders", {
       tenant_id: tenant.id,
       number: nextOrderNumber(tenant.id, JSON.parse(tenant.settings || "{}").orderPrefix || "ЗК"),
@@ -65,6 +71,7 @@ export function createOrder({ tenant, user, cart, customer, deliveryCost = 0, pr
       total: Math.max(0, subtotal - discount + deliveryCost),
       promo_code: promo?.code ?? null,
       source,
+      access_token_hash: sha256(accessToken),
     });
 
     for (const r of rows) insert("order_items", { order_id: orderId, ...r });
@@ -72,8 +79,17 @@ export function createOrder({ tenant, user, cart, customer, deliveryCost = 0, pr
     if (promo?.uses_left !== null && promo) run("UPDATE promo_codes SET uses_left=uses_left-1 WHERE id=?", promo.id);
     run("UPDATE carts SET status='ordered' WHERE id=?", cart.id);
 
-    return orderView(tenant.id, orderId);
+    return { ...orderView(tenant.id, orderId), accessToken };
   });
+}
+
+// Право гостя на заказ: токен из ответа на оформление. Сравнение по хешу
+// постоянного времени; короткий или пустой токен не рассматривается.
+export function orderTokenOk(order, token) {
+  if (!order.access_token_hash || typeof token !== "string" || token.length < 20) return false;
+  const a = Buffer.from(sha256(token));
+  const b = Buffer.from(order.access_token_hash);
+  return a.length === b.length && timingSafeEqual(a, b);
 }
 
 export function orderView(tenantId, orderId) {

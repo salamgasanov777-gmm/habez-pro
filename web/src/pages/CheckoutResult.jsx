@@ -44,14 +44,15 @@ function StandaloneResult() {
 export default function CheckoutResult() {
   const [params] = useSearchParams();
   if (params.get("standalone")) return <StandaloneResult />;
-  return <ServerResult number={params.get("order")} params={params} />;
+  return <ServerResult number={params.get("order")} />;
 }
 
-function ServerResult({ number, params }) {
-  // Телефон приходит из адреса, а после возврата из банка — из памяти браузера,
-  // куда его положило оформление заказа.
+function ServerResult({ number }) {
+  // Токен доступа лежит в памяти браузера, куда его положило оформление
+  // заказа; после возврата из банка он всё ещё там. Без токена сервер
+  // покажет заказ только вошедшему владельцу.
   const remembered = store.get("last-order", {}) || {};
-  const phone = params.get("phone") || (remembered.number === number ? remembered.phone : "") || "";
+  const token = remembered.number === number ? remembered.token : null;
   const [order, setOrder] = useState(null);
   const [tries, setTries] = useState(0);
 
@@ -61,12 +62,12 @@ function ServerResult({ number, params }) {
     if (!number) return;
     let stop = false;
     const load = () =>
-      api.get(`/api/orders/${encodeURIComponent(number)}?phone=${encodeURIComponent(phone.replace(/\D/g, ""))}`)
+      api.get(`/api/orders/${encodeURIComponent(number)}`, token ? { headers: { "x-order-token": token } } : {})
         .then((o) => { if (!stop) { setOrder(o); if (o.paymentStatus === "pending" && tries < 4) setTimeout(() => setTries((t) => t + 1), 1500); } })
         .catch(() => {});
     load();
     return () => { stop = true; };
-  }, [number, phone, tries]);
+  }, [number, token, tries]);
 
   if (!number) return <div className="empty"><h3>Заказ не указан</h3><Link className="btn" to="/">В каталог</Link></div>;
 

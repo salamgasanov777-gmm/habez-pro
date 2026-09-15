@@ -100,12 +100,13 @@ test("корзина, заказ и оплата проходят целиком
     payload: { event: "payment.succeeded", object: { id: payment.provider_id, key: payment.idempotence_key, status: "succeeded" } },
   });
 
-  const after = json(await app.inject(`/api/orders/${order.number}?phone=9381234567`));
+  assert.ok(order.accessToken?.length >= 20, "гостю выдан секрет доступа к заказу");
+  const after = json(await app.inject({ url: `/api/orders/${order.number}`, headers: { "x-order-token": order.accessToken } }));
   assert.equal(after.paymentStatus, "paid");
   assert.equal(after.status, "paid");
 });
 
-test("чужой заказ не открывается без телефона", async () => {
+test("чужой заказ не открывается по номеру", async () => {
   const res = await app.inject("/api/orders/ХГЗ-0000-0001");
   assert.ok([403, 404].includes(res.statusCode));
 });

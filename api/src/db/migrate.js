@@ -34,6 +34,13 @@ const STEPS = [
     const has = db.prepare("PRAGMA table_info(orders)").all().some((c) => c.name === "customer_kind");
     if (!has) db.exec("ALTER TABLE orders ADD COLUMN customer_kind TEXT NOT NULL DEFAULT 'person'");
   }],
+  // П-12: доступ гостя к заказу — по секретному токену, а не по номеру и
+  // телефону. У старых заказов токена нет: их видит только владелец аккаунта
+  // и сотрудники.
+  ["2026-09-orders-access-token", () => {
+    const has = db.prepare("PRAGMA table_info(orders)").all().some((c) => c.name === "access_token_hash");
+    if (!has) db.exec("ALTER TABLE orders ADD COLUMN access_token_hash TEXT");
+  }],
 ];
 
 for (const [name, sql] of STEPS) {

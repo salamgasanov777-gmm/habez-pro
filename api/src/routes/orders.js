@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { all, get } from "../db/index.js";
 import { getOrCreateCart, cartView } from "../services/cart.js";
-import { createOrder, orderView, applyPromo } from "../services/orders.js";
+import { createOrder, orderView, applyPromo, orderTokenOk } from "../services/orders.js";
 import { notifyManagers } from "../lib/notify.js";
 import { rub } from "../lib/money.js";
 import { forbidden, notFound } from "../lib/errors.js";
@@ -64,16 +64,16 @@ export default async function orderRoutes(app) {
     return { items: rows.map((r) => orderView(req.tenant.id, r.id)) };
   });
 
-  // Гостю заказ показывается по номеру + телефону: логин ради одного заказа
-  // требовать нельзя, но и открывать чужой заказ по номеру тоже.
+  // Кто вправе видеть заказ: его владелец (по входу), сотрудник, либо гость
+  // с секретным токеном, который сервер выдал при оформлении. Номер заказа
+  // и телефон правом доступа не являются — их можно подобрать.
   app.get("/api/orders/:number", async (req) => {
     const order = get("SELECT * FROM orders WHERE tenant_id=? AND number=?", req.tenant.id, req.params.number);
     if (!order) throw notFound("Заказ не найден");
-    const isOwner = req.user && order.user_id === req.user.id;
+    const isOwner = req.user && order.user_id !== null && order.user_id === req.user.id;
     const isStaff = req.user && ["manager", "admin", "owner"].includes(req.user.role);
-    const phone = String(req.query.phone || "").replace(/\D/g, "");
-    const phoneOk = phone && order.customer_phone.replace(/\D/g, "").endsWith(phone.slice(-10));
-    if (!isOwner && !isStaff && !phoneOk) throw forbidden("Укажите телефон, на который оформлен заказ");
+    const tokenOk = orderTokenOk(order, req.headers["x-order-token"]);
+    if (!isOwner && !isStaff && !tokenOk) throw forbidden("Заказ доступен по ссылке из подтверждения или после входа");
     return orderView(req.tenant.id, order.id);
   });
 }

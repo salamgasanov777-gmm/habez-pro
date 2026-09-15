@@ -28,7 +28,8 @@ POST /api/catalog/calc                    расчёт расхода
 POST /api/leads                           заявка: цена, дилерство, звонок
 GET  /api/cart · POST /api/cart/items     корзина (по cookie)
 POST /api/orders                          оформление заказа
-GET  /api/orders/{номер}?phone=9381234567 свой заказ по номеру и телефону
+GET  /api/orders/{номер}                  свой заказ: по входу владельца или заголовку
+                                          x-order-token (секрет из ответа на оформление)
 ```
 
 ## Пример: заказ от начала до конца
@@ -44,7 +45,8 @@ curl -c jar -X POST https://catalog.habez.ru/api/cart/items \
 # 3. Оформить
 curl -b jar -X POST https://catalog.habez.ru/api/orders \
   -H 'content-type: application/json' \
-  -d '{"customer":{"name":"Ахмед","phone":"+79381234567","deliveryType":"pickup"}}'
+  -d '{"customer":{"name":"Ахмед","phone":"+79381234567","deliveryType":"pickup"},"consent":true}'
+# В ответе — заказ и accessToken: только с ним гость сможет открыть заказ повторно
 
 # 4. Получить ссылку на оплату
 curl -X POST https://catalog.habez.ru/api/payments/create \

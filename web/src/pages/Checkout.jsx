@@ -61,16 +61,17 @@ export default function Checkout() {
         return;
       }
 
-      // Гость смотрит свой заказ по номеру и телефону. С платёжной страницы
-      // банк возвращает только номер, поэтому телефон запоминаем здесь.
-      store.set("last-order", { number: order.number, phone: form.phone });
+      // Гость смотрит свой заказ по секретному токену из этого ответа.
+      // С платёжной страницы банк возвращает только номер, поэтому токен
+      // запоминаем здесь; в адрес он не попадает.
+      store.set("last-order", { number: order.number, token: order.accessToken });
 
       if (payNow && order.total > 0) {
         const pay = await api.post("/api/payments/create", { orderNumber: order.number });
         // Уходим на страницу банка: возврат настроен на /checkout/result.
         if (pay.url) { location.href = pay.url; return; }
       }
-      nav(`/checkout/result?order=${encodeURIComponent(order.number)}&phone=${encodeURIComponent(form.phone)}`);
+      nav(`/checkout/result?order=${encodeURIComponent(order.number)}`);
     } catch (e) {
       setErr(e.message);
       setBusy(false);

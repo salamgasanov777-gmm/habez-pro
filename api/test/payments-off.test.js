@@ -56,7 +56,7 @@ test("демо-страницы банка и вебхуков не сущест
     });
     assert.equal(res.statusCode, 404, `webhook/${p}`);
   }
-  const after = json(await app.inject(`/api/orders/${order.number}?phone=9380000002`));
+  const after = json(await app.inject({ url: `/api/orders/${order.number}`, headers: { "x-order-token": order.accessToken } }));
   assert.equal(after.paymentStatus, "pending");
 });
 

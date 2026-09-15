@@ -246,6 +246,9 @@ CREATE TABLE IF NOT EXISTS orders (
   manager_id    INTEGER REFERENCES users(id) ON DELETE SET NULL,
   manager_note  TEXT,
   source        TEXT NOT NULL DEFAULT 'web',
+  -- Гость смотрит свой заказ по секретной ссылке: сервер выдаёт токен при
+  -- оформлении и хранит только его хеш. Номер и телефон правом доступа не являются.
+  access_token_hash TEXT,
   created_at    TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at    TEXT NOT NULL DEFAULT (datetime('now'))
 );
