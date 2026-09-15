@@ -52,7 +52,9 @@ export const config = {
   tenant: { defaultSlug: env.DEFAULT_TENANT || "habez", headerName: "x-tenant" },
 
   payments: {
-    provider: env.PAYMENT_PROVIDER || "mock",   // mock | yookassa
+    // none — онлайн-оплаты нет (заказ оплачивается менеджеру или по счёту),
+    // mock — имитация для демо-стенда, в production запрещена, yookassa — боевой.
+    provider: env.PAYMENT_PROVIDER || "none",   // none | mock | yookassa
     returnUrl: env.PAYMENT_RETURN_URL || (env.WEB_URL || "http://localhost:5173") + "/checkout/result",
     yookassa: {
       shopId: env.YOOKASSA_SHOP_ID || "",
@@ -88,4 +90,14 @@ if (config.isProd) {
     console.error(`[config] в production не заданы обязательные переменные: ${missing.join(", ")}`);
     process.exit(1);
   }
+  // Имитация оплаты на живом сайте — это поддельная страница банка и
+  // возможность пометить заказ оплаченным без денег. В production её нет.
+  if (config.payments.provider === "mock") {
+    console.error("[config] PAYMENT_PROVIDER=mock запрещён в production: используйте none или yookassa");
+    process.exit(1);
+  }
+}
+if (!["none", "mock", "yookassa"].includes(config.payments.provider)) {
+  console.error(`[config] неизвестный PAYMENT_PROVIDER: ${config.payments.provider}`);
+  process.exit(1);
 }

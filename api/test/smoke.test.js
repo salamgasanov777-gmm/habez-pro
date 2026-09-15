@@ -89,9 +89,15 @@ test("корзина, заказ и оплата проходят целиком
   const pay = json(await app.inject({ method: "POST", url: "/api/payments/create", payload: { orderNumber: order.number } }));
   assert.ok(pay.url.includes("/api/payments/mock/"));
 
+  // Демо-страница оплаты открывается только по ключу платежа из ссылки
+  // и присылает вебхуку id платежа и тот же ключ.
+  const page = await app.inject(pay.url.replace(/^https?:\/\/[^/]+/, ""));
+  assert.equal(page.statusCode, 200);
+  const { get } = await import("../src/db/index.js");
+  const payment = get("SELECT * FROM payments WHERE id=?", pay.paymentId);
   await app.inject({
     method: "POST", url: "/api/payments/webhook/mock",
-    payload: { event: "payment.succeeded", object: { id: order.number, status: "succeeded" } },
+    payload: { event: "payment.succeeded", object: { id: payment.provider_id, key: payment.idempotence_key, status: "succeeded" } },
   });
 
   const after = json(await app.inject(`/api/orders/${order.number}?phone=9381234567`));

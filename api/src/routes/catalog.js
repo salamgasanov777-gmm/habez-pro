@@ -5,6 +5,7 @@ import { createHash } from "node:crypto";
 import { all, get, insert, run } from "../db/index.js";
 import { decorate, ftsQuery, productBySlugOrId, newArrivals } from "../services/catalog.js";
 import { notFound } from "../lib/errors.js";
+import { paymentsEnabled } from "../payments/index.js";
 
 // Подбор по задаче: те же пять сценариев, что в каталоге завода.
 export const TASKS = [
@@ -39,7 +40,10 @@ export default async function catalogRoutes(app) {
         minOrder: settings.minOrder || 0,
         deliveryCost: settings.deliveryCost ?? null,
         checkoutMode: settings.checkoutMode || "order", // order | quote
-    site: settings.site || null,
+        site: settings.site || null,
+        // Онлайн-оплата есть только при настроенном провайдере; без него
+        // витрина не предлагает «картой онлайн».
+        onlinePayment: paymentsEnabled(),
       },
       categories: categories.filter((c) => c.count > 0),
       tasks: TASKS,

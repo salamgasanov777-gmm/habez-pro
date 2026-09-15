@@ -24,7 +24,13 @@ export const mockProvider = {
     return true;
   },
 
+  // Демо-страница присылает ключ платежа: без него «оплатить» заказ
+  // посторонним запросом нельзя даже на демо-стенде.
   parseWebhook(body) {
-    return { providerId: body?.object?.id, status: body?.object?.status === "succeeded" ? "succeeded" : "canceled" };
+    return {
+      providerId: body?.object?.id,
+      key: body?.object?.key,
+      status: body?.object?.status === "succeeded" ? "succeeded" : "canceled",
+    };
   },
 };

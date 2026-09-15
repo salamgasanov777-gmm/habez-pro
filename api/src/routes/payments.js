@@ -5,13 +5,16 @@ import { z } from "zod";
 import { randomUUID } from "node:crypto";
 import { all, get, insert, run } from "../db/index.js";
 import { config } from "../config.js";
-import { paymentProvider } from "../payments/index.js";
+import { paymentProvider, paymentsEnabled } from "../payments/index.js";
 import { setStatus } from "../services/orders.js";
 import { badRequest, notFound } from "../lib/errors.js";
 import { rub } from "../lib/money.js";
 
+const paymentsOff = () => badRequest("Онлайн-оплата недоступна: заказ оплачивается менеджеру или по счёту");
+
 export default async function paymentRoutes(app) {
   app.post("/api/payments/create", async (req) => {
+    if (!paymentsEnabled()) throw paymentsOff();
     const { orderNumber } = z.object({ orderNumber: z.string().min(3).max(40) }).parse(req.body);
     const order = get("SELECT * FROM orders WHERE tenant_id=? AND number=?", req.tenant.id, orderNumber);
     if (!order) throw notFound("Заказ не найден");
@@ -39,9 +42,16 @@ export default async function paymentRoutes(app) {
 
   // Демо-страница оплаты для провайдера mock: без неё нельзя показать
   // заказчику весь путь до «оплачено», пока эквайринг не подключён.
+  // Существует только в режиме mock: на живом сайте её нет (config это гарантирует).
   app.get("/api/payments/mock/:number", async (req, reply) => {
+    if (config.payments.provider !== "mock") throw notFound();
     const order = get("SELECT * FROM orders WHERE tenant_id=? AND number=?", req.tenant.id, req.params.number);
     if (!order) throw notFound("Заказ не найден");
+    // Ключ платежа из ссылки: страница передаст его вебхуку, без него
+    // подтверждение не примется.
+    const payment = get("SELECT * FROM payments WHERE order_id=? AND provider='mock' AND idempotence_key=?",
+      order.id, String(req.query.key || ""));
+    if (!payment) throw notFound("Платёж не найден");
     reply.type("text/html; charset=utf-8");
     return `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Оплата ${order.number}</title>
@@ -57,24 +67,24 @@ button{width:100%;padding:14px;border:0;border-radius:12px;font-size:16px;font-w
 <p class=note>Это встроенная имитация эквайринга. В боевом режиме здесь открывается платёжная страница банка.</p></div>
 <script>async function done(status){
   await fetch('${config.publicUrl}/api/payments/webhook/mock',{method:'POST',headers:{'content-type':'application/json','x-tenant':'${req.tenant.slug}'},
-    body:JSON.stringify({event:'payment.'+status,object:{id:'${order.number}',status:status}})});
+    body:JSON.stringify({event:'payment.'+status,object:{id:'${payment.provider_id}',key:'${payment.idempotence_key}',status:status}})});
   location.href='${config.payments.returnUrl}?order=${order.number}&status='+status;
 }</script>`;
   });
 
+  // Единственное место, где заказ становится оплаченным. Принимается только
+  // вебхук настроенного провайдера, платёж ищется строго среди его платежей,
+  // а подтверждение — либо перезапрос у провайдера, либо (для демо) секретный
+  // ключ платежа. Подделать «оплату» посторонним запросом нельзя.
   app.post("/api/payments/webhook/:provider", { config: { rateLimit: false } }, async (req, reply) => {
-    const provider = paymentProvider(req.params.provider === "mock" ? "mock" : config.payments.provider);
+    if (!paymentsEnabled() || req.params.provider !== config.payments.provider) throw notFound();
+    const provider = paymentProvider(config.payments.provider);
     if (!provider.verifyWebhook(req)) return reply.code(403).send({ ok: false });
 
     const parsed = provider.parseWebhook(req.body);
     if (!parsed?.providerId) return { ok: true };
 
-    // mock шлёт номер заказа, боевой провайдер — свой id платежа.
-    let payment = get("SELECT * FROM payments WHERE provider=? AND provider_id=?", provider.name, parsed.providerId);
-    if (!payment && provider.name === "mock") {
-      const order = get("SELECT * FROM orders WHERE tenant_id=? AND number=?", req.tenant.id, parsed.providerId);
-      payment = order ? get("SELECT * FROM payments WHERE order_id=? ORDER BY id DESC LIMIT 1", order.id) : null;
-    }
+    const payment = get("SELECT * FROM payments WHERE provider=? AND provider_id=?", provider.name, parsed.providerId);
     if (!payment) return { ok: true };
     if (payment.status === "succeeded") return { ok: true }; // повторная доставка вебхука
 
@@ -83,13 +93,16 @@ button{width:100%;padding:14px;border:0;border-radius:12px;font-size:16px;font-w
       // Тело вебхука не подписано — перезапрашиваем платёж у провайдера.
       const fresh = await provider.fetchPayment(payment.provider_id);
       status = fresh.status;
+    } else if (parsed.key !== payment.idempotence_key) {
+      // Демо-режим: без ключа платежа телу запроса не верим.
+      return reply.code(403).send({ ok: false });
     }
 
     run("UPDATE payments SET status=?, updated_at=datetime('now') WHERE id=?", status, payment.id);
 
     if (status === "succeeded") {
       run("UPDATE orders SET payment_status='paid' WHERE id=?", payment.order_id);
-      setStatus(req.tenant.id, payment.order_id, "paid", null, "Оплата подтверждена провайдером");
+      setStatus(payment.tenant_id, payment.order_id, "paid", null, "Оплата подтверждена провайдером");
     } else if (status === "canceled") {
       run("UPDATE orders SET payment_status='failed' WHERE id=?", payment.order_id);
     }
