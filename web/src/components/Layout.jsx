@@ -5,6 +5,8 @@ import { STANDALONE } from "../lib/api.js";
 import { Search, Cart, Star, Sun, Moon, User, Grid, Scale, Qr } from "./Icons.jsx";
 import ShareDialog from "./ShareDialog.jsx";
 import LeadDialog from "./LeadDialog.jsx";
+
+const LEGAL_TITLES = { offer: "Публичная оферта", delivery: "Условия доставки", refund: "Возврат и обмен" };
 import InstallHint from "./InstallHint.jsx";
 
 function Header() {
@@ -120,6 +122,10 @@ function Footer() {
           </div>
           <p className="dim" style={{ fontSize: 13, margin: 0 }}>{meta?.tenant?.address}</p>
           <p className="dim" style={{ fontSize: 13, margin: "8px 0 0" }}><Link to="/privacy" className="muted">Политика обработки персональных данных</Link></p>
+          {/* Оферта, доставка, возврат — появляются, когда завод опубликует текст. */}
+          {(meta?.settings?.legalDocs || []).map((k) => (
+            <p key={k} className="dim" style={{ fontSize: 13, margin: "4px 0 0" }}><Link to={`/docs/${k}`} className="muted">{LEGAL_TITLES[k]}</Link></p>
+          ))}
         </div>
         <div>
           <div className="label" style={{ marginBottom: 8 }}>Каталог</div>

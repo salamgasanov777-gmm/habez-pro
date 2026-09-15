@@ -17,6 +17,12 @@ export const TASKS = [
   { key: "plinth", label: "Цоколь" },
 ];
 
+// Юридические тексты завода: публичная оферта, условия доставки, возврат.
+// Хранятся в settings.legal как обычный текст, который вставляет владелец
+// в панели. Сами тексты система не сочиняет.
+export const LEGAL_KINDS = ["offer", "delivery", "refund"];
+export const LEGAL_TITLES = { offer: "Публичная оферта", delivery: "Условия доставки", refund: "Возврат и обмен" };
+
 function etagFor(payload) {
   return 'W/"' + createHash("sha1").update(JSON.stringify(payload)).digest("base64url").slice(0, 27) + '"';
 }
@@ -47,6 +53,9 @@ export default async function catalogRoutes(app) {
         onlinePayment: paymentsEnabled(),
         // Вход по SMS предлагается, только когда код реально отправляется.
         phoneLogin: config.notify.phoneLogin,
+        // Какие юридические документы заполнены заводом (текст — отдельным
+        // запросом). Пустые на витрине не показываются и ни к чему не обязывают.
+        legalDocs: LEGAL_KINDS.filter((k) => (settings.legal?.[k] || "").trim()),
       },
       categories: categories.filter((c) => c.count > 0),
       tasks: TASKS,
@@ -57,6 +66,16 @@ export default async function catalogRoutes(app) {
     if (req.headers["if-none-match"] === etag) return reply.code(304).send();
     reply.header("etag", etag).header("cache-control", "public, max-age=60, stale-while-revalidate=600");
     return payload;
+  });
+
+  app.get("/api/catalog/legal/:kind", async (req, reply) => {
+    const kind = String(req.params.kind);
+    if (!LEGAL_KINDS.includes(kind)) throw notFound();
+    const settings = JSON.parse(req.tenant.settings || "{}");
+    const text = String(settings.legal?.[kind] || "").trim();
+    if (!text) throw notFound("Документ ещё не опубликован");
+    reply.header("cache-control", "public, max-age=300");
+    return { kind, title: LEGAL_TITLES[kind], text, updatedAt: settings.legalUpdatedAt?.[kind] || null };
   });
 
   app.get("/api/catalog/products", async (req, reply) => {

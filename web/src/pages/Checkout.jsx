@@ -183,7 +183,10 @@ export default function Checkout() {
 
           <label className="consent" style={{ marginTop: 4 }}>
             <input type="checkbox" required checked={consent} onChange={(e) => setConsent(e.target.checked)} />
-            <span>Согласен на обработку персональных данных на условиях <Link to="/privacy" target="_blank">политики</Link></span>
+            <span>
+              Согласен на обработку персональных данных на условиях <Link to="/privacy" target="_blank">политики</Link>
+              {meta?.settings?.legalDocs?.includes("offer") && <> и принимаю условия <Link to="/docs/offer" target="_blank">публичной оферты</Link></>}
+            </span>
           </label>
 
           {err && <p className="error-text">{err}</p>}

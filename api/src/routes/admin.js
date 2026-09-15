@@ -320,6 +320,15 @@ export default async function adminRoutes(app) {
       legalName: z.string().max(300).optional(), inn: z.string().max(12).optional(),
       theme: z.record(z.any()).optional(), settings: z.record(z.any()).optional(),
     }).parse(req.body);
+    // Юридические тексты — только строки разумной длины; дата правки каждого
+    // документа проставляется здесь, чтобы на витрине была видна редакция.
+    if (b.settings?.legal !== undefined) {
+      const legal = z.object({ offer: z.string().max(60000).optional(), delivery: z.string().max(60000).optional(), refund: z.string().max(60000).optional() }).parse(b.settings.legal);
+      const was = json(req.tenant.settings, {});
+      const stamps = { ...(was.legalUpdatedAt || {}) };
+      for (const [k, v] of Object.entries(legal)) if ((v || "").trim() !== (was.legal?.[k] || "").trim()) stamps[k] = new Date().toISOString().slice(0, 10);
+      b.settings = { ...b.settings, legal, legalUpdatedAt: stamps };
+    }
     const patch = {};
     for (const [k, v] of Object.entries({
       name: b.name, phone: b.phone, email: b.email, address: b.address,

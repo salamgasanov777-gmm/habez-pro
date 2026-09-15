@@ -14,6 +14,7 @@ import Compare from "./pages/Compare.jsx";
 import Login from "./pages/Login.jsx";
 import Account from "./pages/Account.jsx";
 import Privacy from "./pages/Privacy.jsx";
+import LegalDoc from "./pages/LegalDoc.jsx";
 
 // Панель управления нужна нескольким сотрудникам, а грузится всеми. Выносим
 // её в отдельный чанк: покупатель на телефоне не скачивает админку.
@@ -75,6 +76,7 @@ export default function App() {
               <Route path="/login" element={<Login />} />
               <Route path="/account" element={<Account />} />
               <Route path="/privacy" element={<Privacy />} />
+              <Route path="/docs/:kind" element={<LegalDoc />} />
               <Route path="*" element={<div className="empty"><h3>Страница не найдена</h3><p>Проверьте адрес или вернитесь в каталог.</p></div>} />
             </Routes>
             {sheet && <ProductSheet slug={sheet} />}

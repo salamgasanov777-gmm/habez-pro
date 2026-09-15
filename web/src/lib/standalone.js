@@ -128,6 +128,12 @@ export async function handleLocal(path, { method = "GET", body } = {}) {
     };
   }
 
+  if (url.startsWith("/api/catalog/legal/")) {
+    const doc = data.legal?.[url.split("/").pop()];
+    if (!doc) throw Object.assign(new Error("Документ ещё не опубликован"), { status: 404 });
+    return doc;
+  }
+
   if (url === "/api/catalog/products") {
     let items = data.products;
     if (q.category) items = items.filter((p) => p.categorySlug === q.category);

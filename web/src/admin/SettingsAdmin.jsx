@@ -58,6 +58,16 @@ export default function SettingsAdmin() {
             <input className="input" value={s.orderPrefix || "ЗК"} onChange={(e) => setS("orderPrefix", e.target.value.toUpperCase().slice(0, 5))} /></label>
         </section>
 
+        <section className="panel stack" style={{ gridColumn: "1 / -1" }}>
+          <h3>Юридические документы <span className="dim" style={{ fontWeight: 400, fontSize: 13 }}>— тексты готовит завод; пустой документ на витрине не показывается</span></h3>
+          {[["offer", "Публичная оферта"], ["delivery", "Условия доставки"], ["refund", "Возврат и обмен"]].map(([k, label]) => (
+            <label className="field" key={k}><span>{label}{s.legalUpdatedAt?.[k] ? <span className="dim"> — редакция от {s.legalUpdatedAt[k]}</span> : null}</span>
+              <textarea className="textarea" style={{ minHeight: 120 }} value={s.legal?.[k] || ""}
+                onChange={(e) => setS("legal", { ...(s.legal || {}), [k]: e.target.value })} placeholder="Вставьте текст документа. Абзацы — через пустую строку." /></label>
+          ))}
+          <p className="hint" style={{ margin: 0 }}>Когда опубликована оферта, в оформлении заказа к согласию добавляется «принимаю условия публичной оферты» со ссылкой.</p>
+        </section>
+
         <section className="panel stack">
           <h3>Оформление</h3>
           <label className="field"><span>Фирменный цвет</span>

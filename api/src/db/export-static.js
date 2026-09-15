@@ -9,7 +9,7 @@ import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { all, get, json } from "./index.js";
 import { decorate, newArrivals } from "../services/catalog.js";
-import { TASKS } from "../routes/catalog.js";
+import { TASKS, LEGAL_KINDS, LEGAL_TITLES } from "../routes/catalog.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const out = resolve(here, "../../../web/public/data/catalog.json");
@@ -72,7 +72,10 @@ const payload = {
     // телефон из карточки компании нельзя: там может лежать заглушка,
     // и заявки уйдут в никуда.
     whatsapp: (settings.whatsapp || "").replace(/\D/g, ""),
+    legalDocs: LEGAL_KINDS.filter((k) => (settings.legal?.[k] || "").trim()),
   },
+  legal: Object.fromEntries(LEGAL_KINDS.filter((k) => (settings.legal?.[k] || "").trim())
+    .map((k) => [k, { kind: k, title: LEGAL_TITLES[k], text: settings.legal[k].trim(), updatedAt: settings.legalUpdatedAt?.[k] || null }])),
   categories,
   tasks: TASKS,
   newArrivals: newArrivals(tenant.id),
