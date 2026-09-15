@@ -56,3 +56,24 @@ test("вне production вход по коду доступен (код возв
   assert.equal(r.status, 0, r.stderr);
   assert.deepEqual(JSON.parse(r.stdout.trim()), { phoneLogin: true, dev: true });
 });
+
+test("П-15: в production сервер слушает только 127.0.0.1 и верит X-Forwarded-For лишь от локального прокси", () => {
+  const r = inProd(`
+    const { config } = await import("./src/config.js");
+    const { build } = await import("./src/server.js");
+    const app = await build();
+    const seen = [];
+    app.addHook("onRequest", async (req) => { seen.push(req.ip); });
+    // Запрос «снаружи» с подставленным X-Forwarded-For: IP не должен подмениться.
+    await app.inject({ url: "/api/health", remoteAddress: "203.0.113.5", headers: { "x-forwarded-for": "1.1.1.1" } });
+    // Тот же заголовок от локального nginx — настоящий адрес клиента берётся из него.
+    await app.inject({ url: "/api/health", remoteAddress: "127.0.0.1", headers: { "x-forwarded-for": "1.1.1.1" } });
+    console.log(JSON.stringify({ host: config.host, trust: config.trustProxy, seen }));
+    await app.close();
+  `);
+  assert.equal(r.status, 0, r.stderr);
+  const out = JSON.parse(r.stdout.trim());
+  assert.equal(out.host, "127.0.0.1");
+  assert.equal(out.trust, "loopback");
+  assert.deepEqual(out.seen, ["203.0.113.5", "1.1.1.1"]);
+});

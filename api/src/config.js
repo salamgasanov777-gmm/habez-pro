@@ -25,7 +25,14 @@ export const config = {
   nodeEnv: env.NODE_ENV || "development",
   isProd: env.NODE_ENV === "production",
   port: Number(env.PORT || 4000),
-  host: env.HOST || "0.0.0.0",
+  // В production сервер слушает только локальный адрес: снаружи к нему
+  // ходит nginx. Открытый порт 4000 позволил бы подставлять X-Forwarded-For
+  // и обходить ограничение частоты запросов. В Docker нужен 0.0.0.0 —
+  // там порт наружу не публикуется (см. docker-compose.yml).
+  host: env.HOST || (env.NODE_ENV === "production" ? "127.0.0.1" : "0.0.0.0"),
+  // Чьим заголовкам X-Forwarded-* верить. По умолчанию — только обратному
+  // прокси на этой же машине; в Docker задать подсеть, например TRUST_PROXY=172.16.0.0/12.
+  trustProxy: env.TRUST_PROXY ? (/^(true|false)$/i.test(env.TRUST_PROXY) ? /^true$/i.test(env.TRUST_PROXY) : env.TRUST_PROXY.split(",").map((s) => s.trim())) : "loopback",
   publicUrl: env.PUBLIC_URL || "http://localhost:4000",
   webUrl: env.WEB_URL || "http://localhost:5173",
   corsOrigins: (env.CORS_ORIGINS || "http://localhost:5173,http://localhost:4173")

@@ -51,7 +51,7 @@ export async function build() {
 
   const app = Fastify({
     logger: { level: config.logLevel, ...(config.isProd ? {} : { transport: undefined }) },
-    trustProxy: true,
+    trustProxy: config.trustProxy,
     genReqId: () => randomUUID(),
     bodyLimit: 2 * 1024 * 1024,
   });

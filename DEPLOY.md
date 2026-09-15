@@ -110,6 +110,18 @@ sudo systemctl enable --now hgz
 systemctl status hgz
 ```
 
+**6а. Закрыть порты**
+
+Приложение в production само слушает только `127.0.0.1:4000` — снаружи к нему
+ходит nginx. Чтобы никакой другой порт случайно не оказался открыт:
+
+```bash
+sudo ufw allow OpenSSH && sudo ufw allow 80 && sudo ufw allow 443 && sudo ufw --force enable
+sudo ufw status
+```
+
+Проверка: `curl -m 3 http://IP-сервера:4000/api/health` снаружи должен **не** отвечать.
+
 **7. Домен и HTTPS**
 
 ```bash
