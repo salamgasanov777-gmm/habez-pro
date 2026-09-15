@@ -23,6 +23,10 @@ if (fresh && config.isProd) { try { chmodSync(config.db.file, 0o640); } catch { 
 db.exec("PRAGMA journal_mode = WAL");
 db.exec("PRAGMA foreign_keys = ON");
 db.exec("PRAGMA busy_timeout = 5000");
+// FULL: каждая подтверждённая транзакция на диске даже при отключении
+// питания. Нагрузка у нас — десятки записей в день, цена fsync ничтожна,
+// а потерять последний заказ нельзя.
+db.exec("PRAGMA synchronous = FULL");
 
 // Подготовленные запросы кешируются: одни и те же строки SQL выполняются
 // на каждый запрос к API, компилировать их заново незачем.
@@ -63,8 +67,12 @@ function norm(v) {
   return v;
 }
 
+// Все транзакции в приложении — на запись (заказ, сид, массовые цены).
+// IMMEDIATE берёт блокировку записи сразу и честно ждёт busy_timeout, а не
+// падает с SQLITE_BUSY при попытке перейти от чтения к записи внутри
+// транзакции, если другой писатель (копия, миграция) успел раньше.
 export function tx(fn) {
-  db.exec("BEGIN");
+  db.exec("BEGIN IMMEDIATE");
   try {
     const result = fn();
     db.exec("COMMIT");
