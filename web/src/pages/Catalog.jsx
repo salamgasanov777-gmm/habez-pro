@@ -12,6 +12,9 @@ import { mediaUrl } from "../lib/format.js";
 // Значок к каждой задаче подбора; ключи приходят с сервера.
 const TASK_ICON = { wet: Bath, dry: Room, facade: Facade, "floor-heat": Floor, plinth: Plinth };
 
+// Размер страницы каталога; дальше — кнопка «Показать ещё».
+const PAGE = 60;
+
 const SORTS = [
   { key: "default", label: "По разделам" },
   { key: "name", label: "По названию" },
@@ -24,6 +27,7 @@ export default function Catalog() {
   const [params, setParams] = useSearchParams();
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [compare, setCompare] = useState(() => store.session.get("compare", []));
   const abort = useRef(null);
 
@@ -43,7 +47,7 @@ export default function Catalog() {
     // Пауза перед запросом: пока человек печатает, сервер не дёргается
     // на каждую букву. Для поиска по 43 товарам этого достаточно.
     const timer = setTimeout(() => {
-      api.get(`/api/catalog/products?${api.qs({ ...filters, limit: 60 })}`, { signal: ctrl.signal })
+      api.get(`/api/catalog/products?${api.qs({ ...filters, limit: PAGE })}`, { signal: ctrl.signal })
         .then(setData)
         .catch((e) => { if (e.name !== "AbortError") setData({ items: [], total: 0 }); })
         .finally(() => setLoading(false));
@@ -51,6 +55,17 @@ export default function Catalog() {
 
     return () => { clearTimeout(timer); ctrl.abort(); };
   }, [filters]);
+
+  // Каталог отдаётся страницами; следующая добавляется к уже показанным,
+  // чтобы при росте каталога товары за пределами первой страницы не пропадали.
+  const loadMore = async () => {
+    if (!data || loadingMore || data.page >= data.pages) return;
+    setLoadingMore(true);
+    try {
+      const next = await api.get(`/api/catalog/products?${api.qs({ ...filters, limit: PAGE, page: data.page + 1 })}`);
+      setData((cur) => ({ ...next, items: [...(cur?.items || []), ...next.items] }));
+    } catch { /* останется кнопка — можно нажать ещё раз */ } finally { setLoadingMore(false); }
+  };
 
   const setParam = (key, value) => {
     const next = new URLSearchParams(params);
@@ -154,11 +169,20 @@ export default function Catalog() {
             {Array.from({ length: 8 }).map((_, i) => <div key={i} className="skeleton" style={{ height: 268 }} />)}
           </div>
         ) : data?.items?.length ? (
-          <div className="grid">
-            {data.items.map((p) => (
-              <ProductCard key={p.id} product={p} onCompare={toggleCompare} comparing={compare.includes(p.id)} />
-            ))}
-          </div>
+          <>
+            <div className="grid">
+              {data.items.map((p) => (
+                <ProductCard key={p.id} product={p} onCompare={toggleCompare} comparing={compare.includes(p.id)} />
+              ))}
+            </div>
+            {data.page < data.pages && (
+              <div className="row" style={{ justifyContent: "center", marginTop: 18 }}>
+                <button className="btn btn-lg" onClick={loadMore} disabled={loadingMore}>
+                  {loadingMore ? "Загружаем…" : `Показать ещё (${data.total - data.items.length})`}
+                </button>
+              </div>
+            )}
+          </>
         ) : (
           <div className="empty">
             <h3>Ничего не нашлось</h3>
