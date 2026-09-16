@@ -45,14 +45,28 @@ sudo apt-get install -y git curl sqlite3 age rclone ufw fail2ban unattended-upgr
 sudo timedatectl set-timezone Europe/Moscow
 ```
 
-SSH: только по ключу, root по паролю закрыт.
+SSH: только по ключу, root по паролю закрыт. **Порядок важен, чтобы не
+потерять доступ**: сначала свой ключ в `~/.ssh/authorized_keys`, вход по ключу
+проверен во **втором** окне терминала, и только потом — ужесточение, первое
+окно при этом не закрывать. Порт SSH не менять; текущий узнать так:
 
 ```bash
-sudo sed -i 's/^#\?PasswordAuthentication.*/PasswordAuthentication no/; s/^#\?PermitRootLogin.*/PermitRootLogin prohibit-password/' /etc/ssh/sshd_config
-sudo systemctl restart ssh
+sudo sshd -T | grep -iE '^(port|passwordauthentication|permitrootlogin) '
 ```
 
-Проверка: новое подключение по ключу работает; `ssh -o PreferredAuthentications=password …` отвергается.
+На Ubuntu 24.04 настройки читаются сначала из `/etc/ssh/sshd_config.d/*.conf`
+(у облачных образов там лежит `50-cloud-init.conf` с `PasswordAuthentication yes`),
+и побеждает **первое** встреченное значение — поэтому правка основного
+`sshd_config` может не подействовать. Кладём свои настройки в файл, который
+читается раньше:
+
+```bash
+printf 'PasswordAuthentication no\nPermitRootLogin prohibit-password\nPubkeyAuthentication yes\nKbdInteractiveAuthentication no\nMaxAuthTries 4\n' | sudo tee /etc/ssh/sshd_config.d/00-hgz.conf
+sudo sshd -t && sudo systemctl restart ssh
+```
+
+Проверка (в новом окне): по ключу входит; `ssh -o PreferredAuthentications=password …`
+отвергается; `sudo sshd -T | grep -i passwordauthentication` → `no`.
 
 **Node.js 22** (нужен ≥ 22.13 — там `node:sqlite` без флага):
 
@@ -188,8 +202,27 @@ sudo /srv/hgz/current/deploy/scripts/firewall.sh                # SSH отовс
 sudo /srv/hgz/current/deploy/scripts/firewall.sh 203.0.113.5    # SSH только с него
 ```
 
+Скрипт открывает SSH на порту **22**. Если `sshd -T` (раздел 1) показал другой
+порт — скрипт не запускать, а руками, подставив порт:
+
+```bash
+sudo ufw --force reset && sudo ufw default deny incoming && sudo ufw default allow outgoing && sudo ufw allow 80/tcp && sudo ufw allow 443/tcp && sudo ufw limit ПОРТ/tcp comment 'SSH' && sudo ufw --force enable
+```
+
 Открыты 80, 443 и SSH; всё остальное закрыто. Порт 4000 наружу не смотрит.
 Проверка с **другого** компьютера: `curl -m 3 http://IP:4000/api/health` — не отвечает.
+
+**fail2ban** — защита SSH от перебора. На Ubuntu 24.04 файла `/var/log/auth.log`
+нет, поэтому jail должен читать журнал systemd:
+
+```bash
+printf '[sshd]\nenabled = true\nbackend = systemd\nmaxretry = 5\nfindtime = 10m\nbantime = 1h\n' | sudo tee /etc/fail2ban/jail.d/hgz.local
+sudo systemctl enable --now fail2ban && sudo systemctl restart fail2ban
+sudo systemctl status fail2ban --no-pager && sudo fail2ban-client status sshd
+```
+
+Ожидается `active (running)` и jail `sshd`. Вход по ключу под бан не попадает;
+при статическом IP можно добавить в тот же файл строку `ignoreip = ваш.IP`.
 
 ## 8. Домен и HTTPS (Caddy)
 
@@ -275,12 +308,13 @@ age-keygen -o hgz-backup-key.txt          # в файле строка "# public
 sudo rclone config
 sudo cp /srv/hgz/current/deploy/backup.env.example /etc/hgz/backup.env
 sudo chmod 600 /etc/hgz/backup.env
-sudo nano /etc/hgz/backup.env             # HGZ_BACKUP_AGE_RECIPIENT=age1…, HGZ_BACKUP_REMOTE=…, HGZ_BACKUP_PING_URL=…
+sudo nano /etc/hgz/backup.env             # HGZ_BACKUP_AGE_RECIPIENT=age1…, HGZ_BACKUP_REMOTE=…, HGZ_PUBLIC_URL=https://…, HGZ_BACKUP_PING_URL=…
 
-# 3. Таймеры.
+# 3. Таймеры: копии и мониторинг. hgz-restore-test.timer НЕ включать: приватный
+#    ключ age на сервере не хранится (раздел 12), без него тест каждый месяц падал бы.
 sudo cp /srv/hgz/current/deploy/systemd/hgz-{backup,restore-test,monitor}.{service,timer} /etc/systemd/system/
 sudo systemctl daemon-reload
-sudo systemctl enable --now hgz-backup.timer hgz-restore-test.timer hgz-monitor.timer
+sudo systemctl enable --now hgz-backup.timer hgz-monitor.timer
 
 # 4. Первая копия — руками (скрипт сам читает /etc/hgz/backup.env).
 sudo /srv/hgz/current/deploy/scripts/backup.sh daily
@@ -299,10 +333,12 @@ sudo /srv/hgz/current/deploy/scripts/backup.sh daily
 
 ## 12. Проверка восстановления
 
-Непроверенной копии не существует. Раз в месяц `hgz-restore-test.timer`
-(или руками) берёт последнюю копию, расшифровывает, проверяет базу,
-поднимает на ней отдельный экземпляр API на порту 4001 и убеждается, что он
-отвечает и видит товары; боевую базу не трогает.
+Непроверенной копии не существует. Раз в месяц — руками, с компьютера
+владельца (см. ниже) — `restore-test.sh` берёт копию, расшифровывает,
+проверяет базу, поднимает на ней отдельный экземпляр API на порту 4001 и
+убеждается, что он отвечает и видит товары; боевую базу не трогает.
+`hgz-restore-test.timer` есть в `deploy/systemd/`, но включается только если
+решено держать ключ на сервере.
 
 ```bash
 sudo HGZ_RESTORE_IDENTITY=/root/.config/hgz/age-identity.txt /srv/hgz/current/deploy/scripts/restore-test.sh
