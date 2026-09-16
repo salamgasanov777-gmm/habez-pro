@@ -7,10 +7,25 @@
 #   deploy/scripts/backup.sh daily      ночная (+ weekly по воскресеньям, + monthly 1-го числа)
 #   deploy/scripts/backup.sh manual     перед обновлением/миграцией — в manual/, не удаляется автоматически
 #
-# Настройки — /etc/hgz/backup.env (см. deploy/backup.env.example).
-# Без HGZ_BACKUP_AGE_RECIPIENT копия НЕ делается: незашифрованные копии с
-# телефонами покупателей никуда не кладём.
+# Настройки — /etc/hgz/backup.env (см. deploy/backup.env.example). Файл
+# читается и при запуске руками, не только через systemd; переменные,
+# переданные в окружении, имеют приоритет. Без HGZ_BACKUP_AGE_RECIPIENT
+# копия НЕ делается: незашифрованные копии с телефонами покупателей никуда
+# не кладём.
 set -euo pipefail
+
+BACKUP_ENV="${HGZ_BACKUP_ENV:-/etc/hgz/backup.env}"
+if [ -f "$BACKUP_ENV" ]; then
+  # Только строки вида ИМЯ=значение из файла root:0600; уже заданное в
+  # окружении не перекрываем (так systemd и ручной запуск ведут себя одинаково).
+  while IFS= read -r line || [ -n "$line" ]; do
+    case "$line" in ''|'#'*) continue ;; esac
+    name="${line%%=*}"; value="${line#*=}"
+    case "$name" in HGZ_[A-Z0-9_]*) ;; *) continue ;; esac
+    value="${value#\"}"; value="${value%\"}"; value="${value#\'}"; value="${value%\'}"
+    if [ -z "${!name:-}" ]; then export "$name=$value"; fi
+  done < "$BACKUP_ENV"
+fi
 
 KIND="${1:-daily}"
 DB="${DATABASE_FILE:-/var/lib/hgz/hgz.db}"
@@ -85,17 +100,30 @@ case "$KIND" in
 esac
 echo "$orders $products $users" > "$last_file"
 
-# 7. Удалённая копия. Ключ хранилища — только на запись: удалить копии с
-#    сервера нельзя, чистит их политика хранения самого хранилища.
+# 7. Удалённая копия. Ключ хранилища — только на запись (одно право
+#    PutObject, см. backup.env.example): удалить копии с сервера нельзя,
+#    чистит их политика хранения самого хранилища. Поэтому rclone запускается
+#    так, чтобы ему не требовались List/Head/Get: назначение не проверяется
+#    ни до загрузки (--no-check-dest), ни после (--s3-no-head), бакет не
+#    проверяется (--s3-no-check-bucket), файл до 1 ГБ уходит одним PUT
+#    (для multipart нужны бы ещё права на составную загрузку). Целостность
+#    гарантирует сам S3: rclone передаёт Content-MD5, сервер сверяет.
 if [ -n "$REMOTE" ] && [ "$KIND" = "daily" ]; then
   command -v rclone >/dev/null || fail "не установлен rclone"
-  rclone copyto "$DEST/daily/$NAME" "$REMOTE/daily/$NAME" --retries 5 --low-level-retries 10 || fail "не удалось отправить копию в $REMOTE"
-  [ "$(date +%u)" = "7" ] && rclone copyto "$DEST/daily/$NAME" "$REMOTE/weekly/$NAME" || true
-  [ "$(date +%d)" = "01" ] && rclone copyto "$DEST/daily/$NAME" "$REMOTE/monthly/$NAME" || true
+  RCLONE_OPTS=(--no-check-dest --s3-no-check-bucket --s3-no-head --s3-no-head-object --s3-upload-cutoff 1G --retries 5 --low-level-retries 10)
+  rclone copyto "${RCLONE_OPTS[@]}" "$DEST/daily/$NAME" "$REMOTE/daily/$NAME" || fail "не удалось отправить копию в $REMOTE"
+  [ "$(date +%u)" = "7" ] && { rclone copyto "${RCLONE_OPTS[@]}" "$DEST/daily/$NAME" "$REMOTE/weekly/$NAME" || true; }
+  [ "$(date +%d)" = "01" ] && { rclone copyto "${RCLONE_OPTS[@]}" "$DEST/daily/$NAME" "$REMOTE/monthly/$NAME" || true; }
 fi
 
 # 8. Локальная ротация (manual не трогаем).
-rotate() { ls -1t "$DEST/$1"/hgz-*.tar.age 2>/dev/null | tail -n +"$(( $2 + 1 ))" | xargs -r rm -f; }
+# Пустое поколение (weekly/monthly в первые дни) — не ошибка: без этого
+# pipefail ронял скрипт после уже сделанной копии.
+rotate() {
+  local files; files="$(ls -1t "$DEST/$1"/hgz-*.tar.age 2>/dev/null || true)"
+  [ -n "$files" ] || return 0
+  echo "$files" | tail -n +"$(( $2 + 1 ))" | xargs -r rm -f
+}
 rotate daily "$KEEP_DAILY"; rotate weekly "$KEEP_WEEKLY"; rotate monthly "$KEEP_MONTHLY"
 
 size="$(du -h "$DEST/${KIND/daily/daily}/$NAME" 2>/dev/null | cut -f1)"

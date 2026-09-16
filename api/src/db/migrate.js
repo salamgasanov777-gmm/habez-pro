@@ -8,6 +8,13 @@ import { config } from "../config.js";
 const here = dirname(fileURLToPath(import.meta.url));
 
 if (process.argv.includes("--fresh")) {
+  // На боевом сервере `npm run reset` / `--fresh` стёр бы базу с заказами.
+  // Отказ — до того, как хоть один файл тронут.
+  if (config.isProd) {
+    console.error(`[migrate] --fresh (разрушительный сброс базы) запрещён в production: база ${config.db.file} не тронута. ` +
+      "Для чистой базы на новом сервере — удалить файл вручную, для обновления схемы — npm run migrate без флагов.");
+    process.exit(1);
+  }
   for (const suffix of ["", "-wal", "-shm"]) {
     const f = config.db.file + suffix;
     if (existsSync(f)) rmSync(f);

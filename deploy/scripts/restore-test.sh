@@ -26,6 +26,8 @@ fail() { echo "✗ $*" >&2; logger -t hgz-restore-test -p user.err "$*"; ping "/
 umask 077
 WORK="$(mktemp -d /tmp/hgz-restore.XXXXXX)"
 PID=""
+# PID — самого node (в subshell ниже он запускается через exec), поэтому kill
+# попадает в процесс на порту, а не в промежуточную оболочку.
 cleanup() { [ -n "$PID" ] && kill "$PID" 2>/dev/null || true; rm -rf "$WORK"; }
 trap cleanup EXIT
 
@@ -55,7 +57,7 @@ fi
   JWT_SECRET="restore-test-$(head -c 32 /dev/urandom | base64 | tr -d '/+=')" \
   PAYMENT_PROVIDER=none VAPID_SUBJECT=mailto:restore-test@invalid \
   PUBLIC_URL="http://127.0.0.1:$PORT" WEB_URL="http://127.0.0.1:$PORT" CORS_ORIGINS="http://127.0.0.1:$PORT" \
-  node src/server.js >"$WORK/server.log" 2>&1
+  exec node src/server.js >"$WORK/server.log" 2>&1
 ) &
 PID=$!
 

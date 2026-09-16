@@ -9,7 +9,8 @@ fails=0
 ok() { echo "OK   $1"; }
 bad() { echo "FAIL $1"; fails=$((fails + 1)); }
 code() { curl -s -o /dev/null -w '%{http_code}' -m 10 "$@"; }
-expect() { local want="$1" name="$2"; shift 2; local got; got="$(code "$@")"; [ "$got" = "$want" ] && ok "$name → $got" || bad "$name → $got (ожидали $want)"; }
+# want — код или несколько через «|» (например 301|308); любой другой код — ошибка.
+expect() { local want="$1" name="$2"; shift 2; local got; got="$(code "$@")"; case "|$want|" in *"|$got|"*) ok "$name → $got" ;; *) bad "$name → $got (ожидали $want)" ;; esac; }
 
 # Здоровье и режим
 health="$(curl -fsS -m 10 "$BASE/api/health" 2>/dev/null || true)"
@@ -32,7 +33,9 @@ hdr="$(curl -sI -m 10 "$BASE/api/health")"
 for h in "strict-transport-security" "x-frame-options: DENY" "x-content-type-options: nosniff" "content-security-policy"; do
   echo "$hdr" | grep -qi "$h" && ok "заголовок $h" || bad "нет заголовка $h"
 done
-expect 301 "http→https" "http://${BASE#https://}/api/health" 2>/dev/null || true
+# Caddy перенаправляет кодом 308, nginx обычно 301 — оба постоянные; остальное — ошибка.
+host="${BASE#https://}"; host="${host#http://}"
+expect "301|308" "http→https" "http://${host}/api/health"
 
 # Вход и панель: только отказы
 expect 401 "демо-пароль не работает" -X POST -H 'content-type: application/json' -d '{"email":"admin@habez.local","password":"admin12345"}' "$BASE/api/auth/login"
