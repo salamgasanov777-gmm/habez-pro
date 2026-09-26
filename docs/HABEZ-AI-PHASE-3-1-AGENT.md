@@ -1,6 +1,7 @@
 # Habez AI — Phase 3.1: AI Agent внутри Habez Pro
 
 **PHASE 3.1: COMPLETED** — 26 сентября 2026.
+Продолжение — Phase 3.2, агент с инструментами: [HABEZ-AI-PHASE-3-2-AGENT.md](HABEZ-AI-PHASE-3-2-AGENT.md).
 
 Первый рабочий помощник по товарам Habez. Он отвечает только на данных
 слоя знаний (Evidence Model) и карточек, показывает источник у каждого
