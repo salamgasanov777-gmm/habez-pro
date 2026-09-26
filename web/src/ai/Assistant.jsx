@@ -139,6 +139,32 @@ function Comparison({ data, onCite }) {
   );
 }
 
+// Пригодность (Phase 3.3): статусы посчитала система, здесь — только показ.
+// Группы в одном порядке; порядок внутри — каталожный, не рейтинг.
+const SUIT_ORDER = ["SUPPORTED", "PARTIALLY_SUPPORTED", "CONFLICTED", "INSUFFICIENT_DATA", "NOT_SUPPORTED"];
+function Suitability({ items, useCase, onCite }) {
+  const [all, setAll] = useState(false);
+  if (!items?.length) return null;
+  const sorted = [...items].sort((a, b) => SUIT_ORDER.indexOf(a.status) - SUIT_ORDER.indexOf(b.status));
+  const shown = all ? sorted : sorted.slice(0, 6);
+  return (
+    <div className="ai-suit" role="region" aria-label="Пригодность">
+      {useCase && <div className="ai-sources-h">Задача: {useCase.label}</div>}
+      {shown.map((s) => (
+        <div key={s.slug} className="ai-suit-card" data-status={s.status}>
+          <div className="ai-suit-head"><b>{s.short || s.product}</b><span className={`ai-suit-badge s-${s.status}`}>{s.label}</span></div>
+          <div className="hint">
+            {s.reason}
+            {s.refs?.slice(0, 4).map((id) => <button key={id} type="button" className="ai-ref" onClick={() => onCite(id)}>{id.slice(1)}</button>)}
+            {s.packaging === false && <> · нужной фасовки нет</>}
+          </div>
+        </div>
+      ))}
+      {sorted.length > 6 && <button type="button" className="btn btn-sm btn-ghost" onClick={() => setAll(!all)}>{all ? "Свернуть" : `Ещё ${sorted.length - 6}`}</button>}
+    </div>
+  );
+}
+
 function Conflicts({ items, withheld }) {
   if (!items?.length && !withheld?.length) return null;
   return (
@@ -305,11 +331,14 @@ export default function Assistant({ inStore = false }) {
           ? <div key={i} className="ai-msg user">{m.content}</div>
           : (
             <div key={m.id || i} className="ai-msg bot" data-status={m.status} data-mode={m.mode || m.meta?.mode || ""}>
-              <Conflicts items={m.meta?.mode === "COMPARISON" ? [] : m.meta?.conflicts} withheld={m.meta?.withheldProperties} />
+              <Conflicts items={["COMPARISON", "PRODUCT_SELECTION"].includes(m.meta?.mode) ? [] : m.meta?.conflicts} withheld={m.meta?.withheldProperties} />
               {m.content ? <Rich text={m.content} onCite={(id) => cite(i, id)} /> : m.status === "streaming" ? (
                 <div className="ai-typing-row"><div className="ai-typing"><span /><span /><span /></div>{m.phase && <span className="hint">{m.phase}</span>}</div>
               ) : null}
               {m.meta?.mode === "COMPARISON" && <Comparison data={m.meta.comparison} onCite={(id) => cite(i, id)} />}
+              {m.meta?.suitability?.length > 0 && m.status !== "streaming" && <Suitability items={m.meta.suitability} useCase={m.meta.useCase} onCite={(id) => cite(i, id)} />}
+              {m.meta?.application?.missing?.length > 0 && m.status !== "streaming" && <p className="hint">В данных Habez нет: {m.meta.application.missing.join(", ")}.</p>}
+              {m.meta?.profile?.gaps?.length > 0 && m.status !== "streaming" && <p className="hint">В данных Habez нет: {m.meta.profile.gaps.join(", ")}.</p>}
               {m.meta?.clarification?.options?.length > 0 && m.status !== "streaming" && (
                 <div className="ai-examples ai-clarify">
                   {m.meta.clarification.options.map((o) => <button key={o} type="button" className="chip" onClick={() => send(o)} disabled={busy}>{o}</button>)}

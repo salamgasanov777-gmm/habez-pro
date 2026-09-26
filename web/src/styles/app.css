@@ -747,6 +747,13 @@ h3 { font-size: 16px; }
 .ai-compare tbody th { font-weight: 560; color: var(--ink-2); width: 34%; }
 .ai-compare tr:last-child > * { border-bottom: 0; }
 .ai-cell-conflict { background: var(--gold-soft); }
+.ai-suit { display: grid; gap: 8px; }
+.ai-suit-card { border: 1px solid var(--line); border-radius: var(--r); padding: 9px 12px; display: grid; gap: 3px; min-width: 0; }
+.ai-suit-head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.ai-suit-badge { font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 999px; background: var(--surface-2); color: var(--ink-2); white-space: nowrap; }
+.ai-suit-badge.s-SUPPORTED { background: var(--ok-soft); color: var(--ok); }
+.ai-suit-badge.s-PARTIALLY_SUPPORTED, .ai-suit-badge.s-CONFLICTED { background: var(--gold-soft); color: var(--warn); }
+.ai-suit-badge.s-NOT_SUPPORTED { color: var(--danger); }
 .ai-error { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; color: var(--danger); font-size: 14px; }
 .ai-typing { display: inline-flex; gap: 5px; padding: 4px 0; }
 .ai-typing span { width: 7px; height: 7px; border-radius: 50%; background: var(--ink-3); animation: ai-dot 1s infinite ease-in-out; }
