@@ -28,9 +28,9 @@ const TERMS = [
   { re: /высых|сохнет|сушк/, keys: ["drying_time"], label: "время высыхания" },
   { re: /(?:^|[^а-я])(хожден|ходить)/, keys: ["walk_on_time"], label: "время хождения" },
   { re: /набор[а-я]* прочност/, keys: ["strength_gain_initial", "strength_gain_full"], label: "набор прочности" },
-  { re: /(расход|сколько|количеств)[а-я]* вод|вод[аыу]? (на|для)|затворен|водно/, keys: ["water_per_bag", "water_ratio", "water_mix_ratio"], label: "расход воды" },
+  { re: /(расход|сколько|количеств)[а-я]* вод|вод[аыу]? (на|для|нужн)|(как[а-я]*|нужн[а-я]*) вод|затворен|водно/, keys: ["water_per_bag", "water_ratio", "water_mix_ratio"], label: "расход воды" },
   { re: /расход(?![а-я]* вод)/, keys: ["consumption", "consumption_per_mm", "consumption_per_10mm"], label: "расход" },
-  { re: /(?<!при )толщин[а-я]* (сло|нанес)(?![а-я]*\s*\d)|сло[йяе] (до|от)|(?<!при )толщин[а-я]* покрыт/, keys: ["layer_thickness", "layer_thickness_wall", "layer_thickness_floor"], label: "толщина слоя" },
+  { re: /(?<!при )толщин[а-я]* (сло|нанес)(?![а-я]*\s*\d)|сло[йяе] (до|от|нанесени)|как[а-я]* сло[йяе]|(?<!при )толщин[а-я]* покрыт/, keys: ["layer_thickness", "layer_thickness_wall", "layer_thickness_floor"], label: "толщина слоя" },
   { re: /(?<!при )толщин(?![а-я]* сло)(?![а-я]*\s*\d)/, keys: ["thickness", "layer_thickness"], label: "толщина" },
   { re: /морозо/, keys: ["frost_resistance"], label: "морозостойкость" },
   { re: /водопоглощ/, keys: ["water_absorption"], label: "водопоглощение" },
@@ -87,9 +87,10 @@ export function parseConditions(question) {
   if (temp && /°|градус|температур/.test(q)) out.temperature_c = Number(temp[1]);
   const dil = q.match(/(\d{1,2})\s*:\s*(\d{1,2})/);
   if (dil) out.dilution = `${dil[1]}:${dil[2]}`;
-  if (new RegExp(`на\\s*(1\\s*)?(мешок|мешка|упаковк)`).test(q)) out.per = "bag";
-  else if (/на\s*(1\s*)?(м²|м2|кв\.?\s*м|квадрат)/.test(q)) out.per = "m2";
-  else if (/на\s*(1\s*)?кг/.test(q)) out.per = "kg";
+  // «на мешок», «на 1 мешок», «на один мешок».
+  if (/на\s*((1|один|одну)\s*)?(мешок|мешка|упаковк)/.test(q)) out.per = "bag";
+  else if (/на\s*((1|один|одну)\s*)?(м²|м2|кв\.?\s*м|квадрат)/.test(q)) out.per = "m2";
+  else if (/на\s*((1|один)\s*)?кг/.test(q)) out.per = "kg";
   return out;
 }
 

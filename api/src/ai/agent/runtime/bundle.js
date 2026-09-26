@@ -104,16 +104,19 @@ export function createBundle({ scope, refBase = 0, maxEvidence = 160 }) {
 
     // Товар: описание, разделы, фасовки, свойства. opts: { missing: [термины],
     // askedConditions, variant, provenance, strengthAmbiguous }.
+    // Возвращает номера описания, разделов и фасовок — для объяснений
+    // (пригодность, паспорт, инструкция).
     product(p, sp, opts = {}) {
+      const refs = { summary: null, sections: new Map(), variants: [] };
       productsSeen.set(p.id, p.name);
       lines.push(`\nТОВАР: ${p.name} (короткое имя «${p.short || p.name}», раздел «${p.category || "—"}»${p.gost ? `, ${p.gost}` : ""})`);
       if (p.summary) {
         const id = add(norm({ kind: "catalog_card", product: p.slug, productName: p.name, label: "описание", value: p.summary, where: "карточка товара" }));
-        if (id) lines.push(`[${id}] Описание: ${p.summary}`);
+        if (id) { lines.push(`[${id}] Описание: ${p.summary}`); refs.summary = id; }
       }
       for (const sec of p.sections || []) {
         const id = add(norm({ kind: "catalog_card", product: p.slug, productName: p.name, label: sec.title, value: sec.text, where: `раздел «${sec.title}»` }));
-        if (id) lines.push(`[${id}] ${sec.title}: ${sec.text}`);
+        if (id) { lines.push(`[${id}] ${sec.title}: ${sec.text}`); refs.sections.set(sec.title, id); }
       }
       if (p.variants?.length) {
         lines.push(opts.variant ? `Фасовка из вопроса: ${opts.variant.unit} (другие фасовки к ответу не относятся):` : "Фасовки (каждая — отдельно, не смешивать):");
@@ -122,9 +125,10 @@ export function createBundle({ scope, refBase = 0, maxEvidence = 160 }) {
           if (!id) break;
           lines.push(`  [${id}] ${v.unit}${v.sku ? ` (артикул ${v.sku})` : ""}${v.per_pallet ? `; на поддоне: ${v.per_pallet} шт` : "; количество на поддоне: нет данных"}`);
           variants.push({ product: p.short || p.name, unit: v.unit, perPallet: v.per_pallet, ref: id });
+          refs.variants.push(id);
         }
       }
-      if (!sp) return;
+      if (!sp) return refs;
       lines.push(`Характеристики (${sp.channel === "catalog_card" ? "из карточки на витрине" : "из наблюдений слоя знаний и строк карточки"}):`);
       if (opts.strengthAmbiguous) lines.push("- В вопросе «прочность» без уточнения: показать КАЖДЫЙ вид прочности отдельно (сцепление, сжатие, изгиб), не выбирать один.");
       for (const term of opts.missing || []) lines.push(`- По характеристике «${term}» у этого товара данных нет${opts.askedConditions ? " для условия из вопроса" : ""}.`);
@@ -166,6 +170,7 @@ export function createBundle({ scope, refBase = 0, maxEvidence = 160 }) {
       if (sp.channel === "catalog_card" && sp.internalOpenItems) {
         lines.push(`Внутренняя сверка: по этому товару у завода есть ${sp.internalOpenItems} нерешённ. вопрос(ов) о данных; подробности пользователю этого уровня недоступны.`);
       }
+      return refs;
     },
 
     // Сравнение: после товаров (ссылки уже присвоены).

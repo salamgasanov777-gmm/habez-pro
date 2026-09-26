@@ -31,6 +31,14 @@ import { selectProperties, fetchProduct, specGroups } from "./plan.js";
 import { createToolRunner } from "./tool-runner.js";
 import { checkAnswer, publicCitation } from "./context.js";
 import { composeSystemPrompt } from "../prompts/system.js";
+import { runIntel, comparisonSuitability } from "../intel/run.js";
+import { useCaseById } from "../intel/usecases.js";
+import { suitabilityMismatch } from "../intel/suitability.js";
+import { applicationSections } from "../intel/profile.js";
+
+// Вопрос только о таких характеристиках — вопрос о применении (Phase 3.3).
+const APPLICATION_KEYS = new Set(["water_per_bag", "water_ratio", "water_mix_ratio", "layer_thickness", "layer_thickness_wall", "layer_thickness_floor",
+  "pot_life", "open_time", "adjust_time", "drying_time", "walk_on_time", "consumption", "consumption_per_mm", "consumption_per_10mm", "base_temperature"]);
 
 const MAX_PRODUCTS = 4;
 const MAX_HISTORY = 10;
@@ -74,7 +82,8 @@ export async function runAgent({ tenantId, scope, question, history = [], state 
   const calls = [];
   onEvent("status", { phase: "search", text: "Ищу данные…" });
 
-  const catalog = all(`SELECT id, slug, name, short_name, summary, sections, spec_tables FROM products WHERE tenant_id=?${scope === "public" ? " AND status='published'" : ""}`, tenantId);
+  const catalog = all(`SELECT p.id, p.slug, p.name, p.short_name, p.summary, p.sections, p.spec_tables, c.name AS category
+    FROM products p LEFT JOIN categories c ON c.id=p.category_id WHERE p.tenant_id=?${scope === "public" ? " AND p.status='published'" : ""}`, tenantId);
   const route = routeQuestion(q, { catalog, state });
   const bundle = createBundle({ scope, refBase, maxEvidence: budget.maxEvidence });
   const allowed = new Set();
@@ -114,11 +123,29 @@ export async function runAgent({ tenantId, scope, question, history = [], state 
     clarification = { question: `По каким характеристикам сравнить ${names(route.products.map((p) => p.short_name || p.name)).replace(" или ", " и ")}? Например: ${opts.join(", ")}.`, options: [`Сравни ${route.products.map((p) => p.short_name || p.name).join(" и ")} по прочности, времени схватывания и расходу воды`] };
     fixed = clarification.question;
   }
+  // Product Intelligence (Phase 3.3): паспорт, подбор, пригодность,
+  // применение, совместимость — правилами, до модели.
+  let intel = null;
+  let intelMs = 0;
+  if (!mode) {
+    const ti = Date.now();
+    intel = runIntel({ route, q, ctx, catalog, bundle, calls, allowed });
+    intelMs = Date.now() - ti;
+    if (intel) {
+      mode = intel.mode; if (intel.fixed) fixed = intel.fixed;
+      products.push(...intel.products.filter((x) => x.sp !== undefined && x.p));
+      if (intel.variant) chosenVariant = intel.variant;
+    }
+  }
+  const useCase = route.useCase ? useCaseById(route.useCase) : null;
+  let suitability = intel?.suitability || null;
   for (const n of route.unknown) if (route.products.length) bundle.note(`ТОВАРА «${n}» В КАТАЛОГЕ HABEZ НЕТ — данных о нём нет, ничего о нём не утверждать.`);
 
   // 2. План: инструменты чтения по маршруту.
   if (!mode && route.products.length && route.intent !== "application") {
-    const keys = route.specs.keys || [];
+    // Сравнение по задаче: характеристики, важные для неё (Comparison 2.0).
+    const keys = route.specs.keys?.length ? route.specs.keys
+      : (route.intent === "comparison" && useCase ? [...new Set([...useCase.keySpecs, ...useCase.requires.flat().map((r) => r.key).filter(Boolean), ...(useCase.against || []).map((r) => r.key)])] : []);
     const conditions = route.conditions || {};
     const packaging = route.intent === "packaging";
     const wantsVariantValue = keys.some((k) => VARIANT_SPEC_KEYS.has(k));
@@ -142,6 +169,7 @@ export async function runAgent({ tenantId, scope, question, history = [], state 
         allowed.add(x.p.id);
       }
       bundle.comparison(cmp);
+      if (useCase) suitability = comparisonSuitability({ products, useCase, ctx, bundle, calls });
     } else {
       for (const rp of list) {
         const got = fetchProduct(ctx, rp.id, route, calls);
@@ -169,11 +197,14 @@ export async function runAgent({ tenantId, scope, question, history = [], state 
         const sel = selectProperties(sp, p, { keys, groups, conditions, variant, packaging });
         if (variant) { chosenVariant = { product: p.slug, unit: variant.unit }; p.variants = p.variants.filter((v) => v.id === variant.id); }
         if (route.intent === "conflict") sp.properties = sp.properties.filter((x) => ["conflict", "unresolved"].includes(x.status) || x.hiddenDisagreement || x.hiddenConfidential);
-        // Для вопроса о числе — только разделы карточки со словами вопроса.
+        // Для вопроса о числе — только разделы карточки со словами вопроса;
+        // для вопроса о применении — ещё разделы, где об этом сказано словами
+        // («толщина наносимого слоя соответствует…»).
         if (!["product_lookup", "unknown"].includes(route.intent)) {
           const own = new Set(route.products.map((x) => String(x.short_name || "").toLowerCase().replace(/ё/g, "е")));
           const terms = searchTerms(q).filter((t) => ![...own].some((n) => n && (n.startsWith(t) || t.startsWith(n))));
-          p.sections = (p.sections || []).filter((sec) => terms.some((t) => sec.text.toLowerCase().replace(/ё/g, "е").includes(t)));
+          const appTitles = keys.length && keys.every((k) => APPLICATION_KEYS.has(k)) ? new Set(applicationSections(p, keys)) : new Set();
+          p.sections = (p.sections || []).filter((sec) => appTitles.has(sec.title) || terms.some((t) => sec.text.toLowerCase().replace(/ё/g, "е").includes(t)));
         }
         products.push({ p, sp, sel, variant });
       }
@@ -190,7 +221,9 @@ export async function runAgent({ tenantId, scope, question, history = [], state 
       }
     }
     // Спросили характеристику, а её нет ни у одного товара — честное «нет».
-    if (!mode && groups.length && products.length && products.every((x) => groups.every((g) => x.sel.missing.includes(g.label)))) {
+    // (Вопрос о применении, на который карточка отвечает словами, — не «нет».)
+    const textAnswers = products.length === 1 && route.specs.keys.length && route.specs.keys.every((k) => APPLICATION_KEYS.has(k)) && (products[0].p.sections || []).length > 0;
+    if (!mode && !textAnswers && groups.length && products.length && products.every((x) => groups.every((g) => x.sel.missing.includes(g.label)))) {
       mode = "NOT_FOUND";
       const other = [...new Set(products.flatMap((x) => x.sel.otherConditions))];
       fixed = `В данных Habez нет ${groups.map((g) => `«${g.label}»`).join(", ")} для ${products.map((x) => x.p.short || x.p.name).join(" и ")}${Object.keys(route.conditions || {}).length ? " при условии из вопроса" : ""}.`
@@ -235,14 +268,19 @@ export async function runAgent({ tenantId, scope, question, history = [], state 
   if (!mode) {
     const disputed = ctxResult.properties.some((p) => ["conflict", "unresolved"].includes(p.status) || p.hiddenDisagreement);
     mode = route.intent === "comparison" && products.length >= 2 ? "COMPARISON" : disputed ? "CONFLICT" : "FACT";
+    // Вопрос о воде, слое, расходе, времени работы — вопрос о применении.
+    if (["spec_lookup", "condition"].includes(route.intent) && products.length === 1 && route.specs.keys.length && route.specs.keys.every((k) => APPLICATION_KEYS.has(k))) {
+      mode = "PRODUCT_APPLICATION";
+      bundle.note("\nПРИМЕНЕНИЕ: значения выше — структурированные; текст разделов карточки — со своими номерами. Раздели «указано в разделе» и «структурированное значение»; расхождения — все значения; «на мешок» не пересчитывать в «на кг»; общие знания не добавлять.");
+    }
   }
   const tRetrieval = Date.now();
   const conflicts = ctxResult.properties.filter((p) => p.status === "conflict" || p.status === "unresolved");
-  const next = nextState(route, state, { variant: chosenVariant, awaiting });
+  const next = nextState(route, state, { variant: chosenVariant, awaiting, focus: intel?.focus || null });
   const safeRoute = {
     intent: route.intent, products: route.products.map((p) => p.short_name || p.name), productSlugs: route.products.map((p) => p.slug), productsFrom: route.productsFrom,
     specs: route.specs.terms, specKeys: route.specs.keys, ambiguousSpec: route.specs.ambiguous, conditions: route.conditions,
-    variant: chosenVariant?.unit ?? null, unknown: route.unknown,
+    variant: chosenVariant?.unit ?? null, unknown: route.unknown, useCase: route.useCase, useCaseFrom: route.useCaseFrom,
   };
   onEvent("meta", {
     intent: route.intent, scope, mode, route: safeRoute,
@@ -253,6 +291,8 @@ export async function runAgent({ tenantId, scope, question, history = [], state 
       decisions: c.items, values: c.values.map((v) => (v.hidden ? { hidden: true } : { display: v.display, refs: v.refs })) })),
     withheldProperties: ctxResult.properties.filter((p) => p.hiddenDisagreement).map((p) => ({ product: p.product, label: p.label })),
     comparison: ctxResult.comparison,
+    useCase: useCase ? { id: useCase.id, label: useCase.label } : null,
+    suitability, profile: intel?.profile || null, application: intel?.application || null, compatibility: intel?.compatibility || null,
     clarification,
     evidenceCount: ctxResult.evidence.length, refBase,
   });
@@ -338,19 +378,25 @@ export async function runAgent({ tenantId, scope, question, history = [], state 
     grounded: check.grounded, unsupported: check.unsupported, mismatched: check.mismatched, uncited: check.uncited,
     echoed: check.echoed, invalidCitations: check.invalidCitations, forbidden: check.forbidden.length, foreignProducts: check.foreignProducts,
     fromHistory: check.fromHistory || [],
+    // Модель назвала «подходит» то, что система так не оценила.
+    statusMismatch: fixed || !suitability ? [] : suitabilityMismatch(answer, suitability),
   };
+  if (grounding.statusMismatch.length) grounding.grounded = false;
   const metrics = {
     tool_calls: calls.length, tool_calls_plan: calls.filter((c) => c.source === "plan").length, tool_calls_model: calls.filter((c) => c.source === "model").length,
     turns, evidence: final.evidence.length, context_chars: bundle.size().chars,
+    // Подбор кандидатов, пригодность, паспорт, инструкция — детерминированная часть 3.3.
+    intel_ms: intelMs,
     retrieval_ms: timings.retrievalMs, context_ms: timings.contextMs, model_ms: timings.llmMs, total_ms: timings.totalMs,
     input_tokens: usage.input_tokens, output_tokens: usage.output_tokens,
   };
   // Источники: на что сослался ответ + ячейки таблицы сравнения (на них
   // можно нажать, даже если в тексте ссылки нет).
-  const tableRefs = new Set((final.comparison?.rows || []).flatMap((r) => r.cells.flatMap((c) => c.refs || [])));
+  const tableRefs = new Set([...(final.comparison?.rows || []).flatMap((r) => r.cells.flatMap((c) => c.refs || [])), ...(suitability || []).flatMap((s) => s.refs || [])]);
   const cited = [...check.citations, ...final.evidence.filter((e) => tableRefs.has(e.id) && !check.citations.includes(e))];
   const result = {
-    answer, intent: route.intent, mode, route: safeRoute, scope, stopReason, usage,
+    answer, intent: route.intent, mode, route: safeRoute, scope, stopReason, usage, suitability, useCase: useCase?.id ?? null,
+    profile: intel?.profile || null, application: intel?.application || null, compatibility: intel?.compatibility || null,
     citations: cited.map((e) => publicCitation(e, scope)),
     grounding,
     withheld: check.forbidden.length > 0,

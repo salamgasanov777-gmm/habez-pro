@@ -18,8 +18,13 @@
 import { z } from "zod";
 import { resolveProducts } from "./resolver.js";
 import { resolveSpecs, parseConditions, VARIANT_SPEC_KEYS } from "./specs.js";
+import { resolveUseCase, useCaseById } from "../intel/usecases.js";
 
-export const INTENTS = ["product_lookup", "spec_lookup", "comparison", "application", "packaging", "condition", "source", "conflict", "unknown"];
+// Phase 3.3: suitability — «подходит ли X для задачи», usage — «как
+// применять», compatibility — «совместимы ли X и Y». application — подбор
+// товаров под задачу.
+export const INTENTS = ["product_lookup", "spec_lookup", "comparison", "application", "packaging", "condition", "source", "conflict",
+  "suitability", "usage", "compatibility", "unknown"];
 
 const slug = z.string().regex(/^[a-z0-9-]{1,80}$/);
 export const stateSchema = z.object({
@@ -32,13 +37,15 @@ export const stateSchema = z.object({
   last_intent: z.enum(INTENTS).nullable().optional(),
   // Агент задал уточняющий вопрос и ждёт: товар, фасовку или товары.
   awaiting: z.enum(["product", "variant", "products"]).nullable().optional(),
+  // Phase 3.3: задача, о которой идёт речь («заделка швов ГКЛ»).
+  current_use_case: z.string().regex(/^[a-z_]{1,40}$/).nullable().optional(),
 }).strict();
 
 const norm = (s) => ` ${String(s || "").toLowerCase().replace(/ё/g, "е").replace(/\s+/g, " ").trim()} `;
 const B = "(?:^|[^а-яa-z0-9])";
 const E = "(?=$|[^а-яa-z0-9])";
 
-const PLURAL_REF = new RegExp(`${B}(их|они|обоих|оба|обе|обеих|эти (товары|смеси|два|две)|между ними|этих двух)${E}`);
+const PLURAL_REF = new RegExp(`${B}(их|они|обоих|оба|обе|обеих|эти (товары|смеси|два|две)|между ними|этих двух|из них|из двух)${E}`);
 const SINGLE_REF = new RegExp(`${B}(него|его|он|она|оно|нему|ним|нем|нее|ее|ней|этого товара|этот товар|этой смеси|эта смесь|этого|этой|у него|у нее)${E}`);
 const ELLIPSIS = /^\s*(а|и|ну|еще|тогда)\s/;
 
@@ -76,6 +83,28 @@ export function routeQuestion(question, { catalog, state = {} }) {
     }
   }
 
+  // Задача (Phase 3.3): из вопроса или, для продолжения, из беседы.
+  const why = /^\s*(а\s+)?(почему|зачем|на каком основании|чем (он|она) подходит)/.test(q);
+  // Название товара-кандидата («АНТИПЛЕСЕНЬ») — не задача «плесень»:
+  // задача по всему вопросу, затем — без имён тех товаров, что сами
+  // кандидаты этой задачи. Имя основания («швы ГКЛ») остаётся.
+  let useCase = resolveUseCase(question);
+  if (useCase) {
+    let named = String(question);
+    for (const p of found.products.filter((x) => useCase.types.test(x.category || ""))) {
+      for (const a of [p.short_name, ...[...String(p.name || "").matchAll(/«([^»]+)»/g)].map((m) => m[1])].filter(Boolean)) {
+        named = named.replace(new RegExp(`${a.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}[а-яё]{0,3}`, "giu"), " ");
+      }
+    }
+    useCase = resolveUseCase(named);
+  }
+  let useCaseFrom = useCase ? "question" : null;
+  const followUp = ELLIPSIS.test(q) || why || PLURAL_REF.test(q) || SINGLE_REF.test(q) || /(этой|той же|этого) задач|для неё|для этого/.test(q);
+  if (!useCase && state.current_use_case && followUp && ["application", "suitability", "comparison"].includes(state.last_intent)) {
+    useCase = useCaseById(state.current_use_case); useCaseFrom = useCase ? "state" : null;
+  }
+  if (why && !products.length && prevProduct && useCase) { products = [prevProduct]; productsFrom = "state"; reference = "single"; }
+
   // «А у Стандарта?» — тот же вопрос о другом товаре: берём прошлые
   // характеристики и условия.
   let specsFrom = specs.keys.length ? "question" : null;
@@ -91,7 +120,22 @@ export function routeQuestion(question, { catalog, state = {} }) {
   // Намерение.
   let intent;
   const specKeys = specs.keys.filter((k) => !VARIANT_SPEC_KEYS.has(k));
-  if (comparisonWords || (products.length >= 2 && new RegExp(`${B}или${E}`).test(q)) || (reference === "plural" && state.last_intent === "comparison")) intent = "comparison";
+  const usageWords = /как (его |ее |их )?(правильно )?(применя|нанос|нанест|использова|развест|развод|приготов|готов|работать с)|инструкц|порядок (работ|нанесени|приготовлени)|технологи[яю] нанесени/.test(q);
+  const suitWords = /подход|подойд|можно (ли )?(его |ее )?(использ|примен|нанос)|годит|пригод|использовать для|применять для/.test(q) || why;
+  const selectWords = /какие|какой|какую|что (использ|взять|подойд|подход|выбрать)|чем [а-я]*(заделать|выровнять|клеить|приклеить|загрунтовать|обработать)|вариант|подбер|посовет/.test(q);
+  const purposeWords = /для чего|назначени|что (он |она )?(собой )?представля|где (применя|использу)/.test(q);
+  // Названный товар — основание задачи («для швов ГКЛ»), а не кандидат:
+  // в сравнении и пригодности его нет.
+  const isBase = (p) => useCase && !useCase.types.test(p.category || "") && /гкл|гипсокартон|гвл|пгп|пазогреб/i.test(`${p.name} ${p.short_name}`);
+  const baseOnly = useCase && products.length && products.every(isBase);
+  if (useCase && !baseOnly && products.some(isBase)) products = products.filter((p) => !isBase(p));
+  if (products.length && purposeWords && !comparisonWords) intent = "product_lookup";
+  else if (usageWords && (products.length || prevProduct)) intent = "usage";
+  else if (products.length >= 2 && /совмест|сочета|вместе с|поверх|по верху/.test(q)) intent = "compatibility";
+  else if (useCase && (comparisonWords || (products.length >= 2 && !baseOnly && new RegExp(`${B}(или|лучше)${E}`).test(q)) || (reference === "plural" && /лучше|выбрать|какой|сравн/.test(q)))) intent = "comparison";
+  else if (useCase && products.length && !baseOnly && (suitWords || (useCaseFrom === "state" && productsFrom === "question" && ELLIPSIS.test(q)))) intent = "suitability";
+  else if (useCase && (!products.length || baseOnly) && (selectWords || suitWords || /для |от |есть/.test(q) || useCaseFrom === "question" || (useCaseFrom === "state" && followUp))) intent = "application";
+  else if (comparisonWords || (products.length >= 2 && new RegExp(`${B}или${E}`).test(q)) || (reference === "plural" && state.last_intent === "comparison")) intent = "comparison";
   else if (new RegExp(`${B}(источник|откуда|кто (дал|указал|прислал)|документ|подтверд|паспорт[а-я]* качеств)`).test(q)) intent = "source";
   else if (new RegExp(`${B}(расхожд|противореч|спор|конфликт|сверк|нерешен|разн[а-я]* значени)`).test(q)) intent = "conflict";
   else if (specKeys.length) intent = Object.keys(conds).length ? "condition" : "spec_lookup";
@@ -102,19 +146,21 @@ export function routeQuestion(question, { catalog, state = {} }) {
   else intent = "unknown";
   if (answering && specsFrom === "state" && state.last_intent) intent = state.last_intent;
   // «Чем отличаются ГКЛ 9,5 и 12,5 мм?» — сравнение фасовок одного товара.
-  if (intent === "comparison" && products.length === 1 && (q.match(/\d+(?:[.,]\d+)?/g) || []).length >= 2 && /\d\s*(мм|кг|л)(?![а-я])/.test(q)) intent = "packaging";
+  if (intent === "comparison" && products.length === 1 && (((q.match(/\d+(?:[.,]\d+)?/g) || []).length >= 2 && /\d\s*(мм|кг|л)(?![а-я])/.test(q)) || /фасовк|упаковк|толщин|вариант/.test(q))) intent = "packaging";
   if (intent === "comparison" && products.length < 2 && !needs.includes("products")) needs.push("products");
+  if (baseOnly && intent === "application") products = products; // основание: остаётся в маршруте, но не кандидат
 
   return {
     intent, products, productsFrom, reference,
     ambiguousProducts: found.ambiguous, unknown: found.unknown,
+    useCase: useCase ? useCase.id : null, useCaseFrom, baseOnly: !!baseOnly,
     specs: { terms: specs.terms, keys: specs.keys, ambiguous: specs.ambiguous, from: specsFrom, groups: specsFrom === "question" ? specs.groups.map((g) => ({ label: g.label, keys: g.keys })) : [] },
     conditions: conds, needs,
   };
 }
 
 // Новое состояние: только то, что следует из вопроса и ответа.
-export function nextState(route, prev = {}, { variant = null, awaiting = null } = {}) {
+export function nextState(route, prev = {}, { variant = null, awaiting = null, focus = null } = {}) {
   const slugs = route.products.map((p) => p.slug);
   let currentProducts = prev.current_products || [];
   if (route.intent === "comparison" && slugs.length >= 2) currentProducts = slugs;
@@ -122,6 +168,8 @@ export function nextState(route, prev = {}, { variant = null, awaiting = null } 
   let currentProduct = prev.current_product ?? null;
   if (slugs.length === 1) currentProduct = slugs[0];
   else if (slugs.length > 1) currentProduct = null; // после сравнения «у него» — неясно, о каком
+  // Подбор: «речь» — о подходящих товарах; первый подтверждённый — текущий.
+  if (focus?.products?.length) { currentProducts = focus.products.slice(0, 4); currentProduct = focus.product ?? currentProduct; }
   return stateSchema.parse({
     current_product: currentProduct,
     current_products: currentProducts,
@@ -131,5 +179,6 @@ export function nextState(route, prev = {}, { variant = null, awaiting = null } 
     current_condition: Object.keys(route.conditions || {}).length ? route.conditions : (route.specs.from === "question" ? null : prev.current_condition ?? null),
     last_intent: route.intent,
     awaiting,
+    current_use_case: route.useCase ?? (["application", "suitability", "comparison"].includes(route.intent) ? prev.current_use_case ?? null : null),
   });
 }

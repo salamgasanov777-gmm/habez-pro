@@ -69,7 +69,8 @@ export function resolveProducts(question, catalog) {
     if (w.length < 5 || STOP.has(w)) continue;
     for (const p of catalog) {
       for (const a of shortAliases(p)) {
-        const lim = a.length >= 8 ? 2 : 1;
+        // Две ошибки — только для длинных имён: иначе «теплого» ≈ «теплоком».
+        const lim = a.length >= 9 ? 2 : 1;
         if (editDistance(w, a) <= lim || editDistance(stripEnding(w), a) <= lim) take(p, 70, "typo");
       }
     }
