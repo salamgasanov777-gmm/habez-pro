@@ -94,6 +94,22 @@ export const config = {
     vapidSubject: env.VAPID_SUBJECT || "mailto:salam-gasanov@mail.ru",
   },
 
+  // Habez AI. Фаза 1 — только слой знаний (источники и факты), без модели
+  // и без выхода в интернет. Выключенный раздел не регистрирует маршруты
+  // вовсе: работающий каталог о нём не знает.
+  // Модель наблюдений (Phase 2.2B) включается отдельно: пока она выключена,
+  // маршрутов /api/ai/observations* нет, а старый путь (ai_product_specs)
+  // работает как раньше. Таблицы миграция создаёт в любом случае — пустые.
+  // AI_EVIDENCE_READ_MODE — чем отвечают старые /api/ai/specs, /intelligence,
+  // /compare: legacy (строки ai_product_specs, по умолчанию) или evidence
+  // (проекция наблюдений, те же поля + блок evidence). evidence действует,
+  // только если AI_EVIDENCE_ENABLED=1; иначе — legacy.
+  ai: {
+    enabled: bool(env.AI_ENABLED, false),
+    evidence: bool(env.AI_EVIDENCE_ENABLED, false),
+    readMode: bool(env.AI_EVIDENCE_ENABLED, false) && String(env.AI_EVIDENCE_READ_MODE || "legacy").toLowerCase() === "evidence" ? "evidence" : "legacy",
+  },
+
   logLevel: env.LOG_LEVEL || (env.NODE_ENV === "production" ? "info" : "debug"),
 };
 

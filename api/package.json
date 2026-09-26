@@ -16,7 +16,11 @@
     "test": "node --test test/*.test.js",
     "create-owner": "node src/db/create-owner.js",
     "export-catalog": "node src/db/export-catalog.js",
-    "import-catalog": "node src/db/import-catalog.js"
+    "import-catalog": "node src/db/import-catalog.js",
+    "ai:import-specs": "node src/ai/knowledge/import-specs.js",
+    "ai:evidence-dry-run": "node src/ai/knowledge/reconcile-repair.js",
+    "ai:reconcile-dry-run": "node src/ai/knowledge/reconcile-dry-run.js",
+    "ai:reconcile-repair": "node src/ai/knowledge/reconcile-repair.js"
   },
   "dependencies": {
     "@fastify/cookie": "^11.0.2",

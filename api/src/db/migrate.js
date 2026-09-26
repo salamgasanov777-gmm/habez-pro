@@ -55,6 +55,27 @@ const STEPS = [
     if (!has) db.exec("ALTER TABLE orders ADD COLUMN idempotency_key TEXT");
     db.exec("CREATE UNIQUE INDEX IF NOT EXISTS ux_orders_idem ON orders(tenant_id, idempotency_key) WHERE idempotency_key IS NOT NULL");
   }],
+  // Habez AI, фаза 1: источники и факты. Каталог не трогаем — факт
+  // ссылается на существующий товар (см. api/src/ai/knowledge/schema.sql).
+  ["2026-09-ai-knowledge", () => {
+    db.exec(readFileSync(resolve(here, "../ai/knowledge/schema.sql"), "utf8"));
+  }],
+  // Habez AI, фаза 2: характеристики товаров числами. Карточки товара не
+  // меняются (см. api/src/ai/knowledge/specs-schema.sql).
+  ["2026-09-ai-product-specs", () => {
+    db.exec(readFileSync(resolve(here, "../ai/knowledge/specs-schema.sql"), "utf8"));
+  }],
+  // Habez AI, Phase 2.2B: наблюдения из разных источников и связи «заменяет».
+  // Только новые таблицы — ai_product_specs не меняется (см.
+  // api/src/ai/knowledge/evidence-schema.sql, откат — evidence-rollback.sql).
+  ["2026-09-ai-evidence", () => {
+    db.exec(readFileSync(resolve(here, "../ai/knowledge/evidence-schema.sql"), "utf8"));
+  }],
+  // Habez AI, Phase 2.2D: вопросы сверки и журнал прогонов исправления.
+  // Только новые таблицы (api/src/ai/knowledge/reconciliation-schema.sql).
+  ["2026-09-ai-reconciliation", () => {
+    db.exec(readFileSync(resolve(here, "../ai/knowledge/reconciliation-schema.sql"), "utf8"));
+  }],
 ];
 
 // --check: только сказать, сколько миграций ещё не применено (для deploy.sh:

@@ -27,6 +27,9 @@ import leadRoutes from "./routes/leads.js";
 import accountRoutes from "./routes/account.js";
 import adminRoutes from "./routes/admin.js";
 import pushRoutes from "./routes/push.js";
+import aiKnowledgeRoutes from "./ai/routes/knowledge.js";
+import aiProductRoutes from "./ai/routes/products.js";
+import aiEvidenceRoutes from "./ai/routes/evidence.js";
 import { openapi } from "./openapi.js";
 
 // Демо-пароли из README не должны работать на живом сервере. Если база
@@ -126,6 +129,13 @@ export async function build() {
   await app.register(accountRoutes);
   await app.register(adminRoutes);
   await app.register(pushRoutes);
+  // Habez AI: раздел выключен по умолчанию (AI_ENABLED). Пока выключен,
+  // маршрутов /api/ai/* не существует — как у платежей при provider=none.
+  if (config.ai.enabled) {
+    await app.register(aiKnowledgeRoutes);
+    await app.register(aiProductRoutes);
+    if (config.ai.evidence) await app.register(aiEvidenceRoutes);
+  }
 
   // Одним процессом можно отдавать и собранный фронтенд — так проще
   // разворачивать на одном небольшом сервере. Обработчик «не найдено»
