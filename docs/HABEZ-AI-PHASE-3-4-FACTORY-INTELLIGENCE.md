@@ -1,6 +1,6 @@
 # Habez AI — Phase 3.4: Factory Intelligence
 
-**PHASE 3.4: COMPLETED** — 26 сентября 2026, ветка `feat/habez-ai-3-4` (без коммитов).
+**PHASE 3.4: COMPLETED** — 26 сентября 2026, ветка `feat/habez-ai-3-4`, коммит `b0e6aa558e917f7736bd0788f5de5c377d6ca1c7`, отправлен на GitHub.
 
 Phase 3.3 научила Habez AI решать задачи вокруг товара. Phase 3.4 учит
 понимать заводы и заводские документы:
