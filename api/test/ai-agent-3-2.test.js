@@ -121,7 +121,7 @@ describe("маршрут и состояние беседы", () => {
     assert.deepEqual([r.products.map((p) => p.slug), r.specs.from], [["standart"], "state"]);
     r = step("Сравни их");
     assert.deepEqual([r.intent, r.products.map((p) => p.slug)], ["comparison", ["shov", "standart"]]);
-    assert.deepEqual(Object.keys(st).sort(), ["awaiting", "current_condition", "current_product", "current_products", "current_spec", "current_specs", "current_use_case", "current_variant", "last_intent"]);
+    assert.deepEqual(Object.keys(st).sort(), ["awaiting", "current_condition", "current_factory", "current_product", "current_products", "current_spec", "current_specs", "current_use_case", "current_variant", "last_intent"]);
     // После сравнения «у него» неясно, о каком.
     r = step("А какая у него прочность?");
     assert.deepEqual(r.needs, ["which_product"]);
@@ -147,7 +147,7 @@ describe("инструменты: единый контракт и только 
       assert.equal(t.write, false, t.name);
     }
     assert.ok(!tools.toolsForScope("public").some((t) => t.name === "get_product_evidence"), "гостю модель этот инструмент не видит");
-    assert.equal(tools.toolsForScope("staff").length, 6);
+    assert.equal(tools.toolsForScope("staff").length, 10, "шесть инструментов товаров и четыре заводских (3.4)");
   });
   test("защита ловит запись: инструмент, изменивший базу, падает", () => {
     db.exec("CREATE TEMP TABLE IF NOT EXISTS t_guard (x INTEGER)");
@@ -196,7 +196,7 @@ describe("цикл инструментов", () => {
     assert.ok(firstNew > seen[0].hints.properties.length, "номера продолжают пакет, а не начинаются заново");
     assert.equal(r.grounding.invalidCitations.length, 0, "ссылка на результат инструмента — настоящая");
     assert.ok(r.citations.some((c) => c.product.includes("СТАНДАРТ")));
-    assert.ok(seen[0].tools.length === 6 && seen[0].system.includes("Инструменты:"));
+    assert.ok(seen[0].tools.length === 10 && seen[0].system.includes("Инструменты:"));
   });
 
   test("повтор того же вызова не выполняется; лимит; последний ход — без вызовов", async () => {

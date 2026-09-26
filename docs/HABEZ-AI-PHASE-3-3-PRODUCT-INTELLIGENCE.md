@@ -1,6 +1,7 @@
 # Habez AI — Phase 3.3: Product Intelligence Agent
 
 **PHASE 3.3: COMPLETED** — 26 сентября 2026, ветка `feat/habez-ai-3-3`, коммиты `7f6e9d4…` (4 шт., в GitHub не отправлены).
+Продолжение — Phase 3.4, Factory Intelligence: [HABEZ-AI-PHASE-3-4-FACTORY-INTELLIGENCE.md](HABEZ-AI-PHASE-3-4-FACTORY-INTELLIGENCE.md).
 
 Phase 3.2 научила Habez AI находить и объяснять данные. Phase 3.3 учит
 решать практические задачи вокруг продукции Habez. Помощник:

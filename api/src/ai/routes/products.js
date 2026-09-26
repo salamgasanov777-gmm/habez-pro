@@ -76,6 +76,26 @@ export default async function aiProductRoutes(app) {
     };
   });
 
+  // Phase 3.4: производитель / завод и заводские документы товара — тот же
+  // производный слой, что у помощника (только чтение, права роли).
+  app.get("/api/ai/products/:id/factory", async (req) => {
+    const id = z.coerce.number().int().positive().parse(req.params.id);
+    const { callTool } = await import("../agent/tools/index.js");
+    const { scopeForRole } = await import("../agent/permissions.js");
+    const out = callTool("get_factory_documents", { productIds: [id] }, { tenantId: req.tenant.id, scope: scopeForRole(req.user.role) });
+    const r = out.products[0];
+    if (!r) return { product: null, relation: null, documents: [] };
+    return {
+      product: r.product, status: r.status, catalog: r.catalog, brands: r.brands, norm: r.norm, needsReview: r.needsReview,
+      relations: r.production.map((x) => ({ factory: x.factory, role: x.role, status: x.status, basis: x.basis.map((b) => ({ kind: b.kind, text: b.text })) })),
+      unnamedManufacturer: r.unnamedManufacturer.length > 0,
+      cardDocuments: r.cardDocuments.map((c) => ({ type: c.type, typeLabel: c.typeLabel, section: c.section })),
+      documents: out.documents.map((d) => ({ id: d.id, type: d.type, typeLabel: d.typeLabel, kindLabel: d.kindLabel, title: d.title, date: d.date?.value ?? null,
+        dateBasis: d.date?.basis ?? null, recordedInApp1: d.recordedInApp1, capturedAt: d.capturedAt, products: d.products.map((p) => p.short),
+        observations: d.observations.length, access: d.access })),
+    };
+  });
+
   // Сравнение по числам. Рядом с /api/catalog/compare, который сводит те же
   // карточки строками для человека, — здесь величины для машины.
   app.get("/api/ai/products/compare", async (req) => {

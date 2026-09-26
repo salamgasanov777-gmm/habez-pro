@@ -16,8 +16,9 @@ export default function ProductIntelligence({ onChanged }) {
   const [open, setOpen] = useState(null);   // характеристика в подробностях
   const isAdmin = ["admin", "owner"].includes(user.role);
 
+  const [factory, setFactory] = useState(null); // производитель и заводские документы (Phase 3.4)
   const load = () => api.get(`/api/ai/products/${id}/intelligence`).then(setData).catch(() => setData(false));
-  useEffect(() => { load(); }, [id]);
+  useEffect(() => { load(); api.get(`/api/ai/products/${id}/factory`).then(setFactory).catch(() => setFactory(null)); }, [id]);
 
   if (data === false) return <div className="empty"><h3>Товар не найден</h3><Link className="btn" to="/admin/ai/products">К списку</Link></div>;
   if (!data) return <div className="skeleton" style={{ height: 320 }} />;
@@ -73,6 +74,8 @@ export default function ProductIntelligence({ onChanged }) {
           </div>
         </section>
       ))}
+
+      {factory?.product && <FactoryPanel data={factory} />}
 
       <section className="panel">
         <h3>Фасовки</h3>
@@ -212,3 +215,52 @@ function SpecDetails({ spec, isAdmin, onClose, onDone }) {
 const Row = ({ label, value }) => (
   <div className="sum-row"><span className="muted">{label}</span><span>{value}</span></div>
 );
+
+// Производитель / завод и заводские документы — только по данным: статус
+// связи посчитал сервер, «нет данных» не превращается в «производит».
+const REL_LABEL = { CONFIRMED: "подтверждено источником", INFERRED: "косвенно, прямо не подтверждено", UNKNOWN: "нет данных", CONFLICTED: "источники противоречат" };
+const REL_PILL = { CONFIRMED: "done", INFERRED: "pending", CONFLICTED: "pending" };
+function FactoryPanel({ data }) {
+  return (
+    <section className="panel">
+      <h3>Производитель / завод</h3>
+      <p className="hint" style={{ margin: "8px 0 12px" }}>
+        В каталоге: {data.catalog.factory}. Каталог — это ассортимент; производство подтверждает только прямая запись «Изготовитель» или «Место производства».
+      </p>
+      <div className="stack" style={{ gap: 6 }}>
+        {data.relations.map((r, i) => (
+          <div key={i}>
+            <span className={`pill ${REL_PILL[r.status] || ""}`}>{REL_LABEL[r.status]}</span> {r.factory}
+            {r.basis.length > 0 && <div className="muted" style={{ fontSize: 13 }}>{r.basis.map((b) => b.text).join("; ")}</div>}
+          </div>
+        ))}
+        {data.brands?.length > 0 && <div className="muted" style={{ fontSize: 13 }}>Марка: {data.brands.join(", ")} — не завод.</div>}
+        {data.needsReview && <div className="muted" style={{ fontSize: 13 }}>Есть внутренние данные об изготовителе — нужна сверка.</div>}
+      </div>
+      <h3 style={{ marginTop: 18 }}>Заводские документы</h3>
+      {data.documents.length === 0 && data.cardDocuments.length === 0 ? (
+        <p className="hint">Документов по этому товару в данных нет.</p>
+      ) : (
+        <div className="table-wrap" style={{ marginTop: 12 }}>
+          <table className="table">
+            <thead><tr><th>Вид</th><th>Документ</th><th>Дата документа</th><th>Записан в №1</th><th>Значений</th></tr></thead>
+            <tbody>
+              {data.documents.map((d) => (
+                <tr key={d.id}>
+                  <td>{d.typeLabel}</td>
+                  <td>{d.title}{d.products.length > 1 ? <div className="muted" style={{ fontSize: 12 }}>также: {d.products.join(", ")}</div> : null}</td>
+                  <td>{d.date ? `${d.date}${d.dateBasis === "title" ? " (из названия)" : ""}` : <span className="muted">не указана</span>}</td>
+                  <td className="muted">{d.recordedInApp1 || "—"}</td>
+                  <td className="num">{d.observations}</td>
+                </tr>
+              ))}
+              {data.cardDocuments.map((c, i) => (
+                <tr key={`c${i}`}><td>{c.typeLabel}</td><td className="muted">раздел карточки «{c.section}»</td><td className="muted">—</td><td className="muted">—</td><td className="num">—</td></tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </section>
+  );
+}

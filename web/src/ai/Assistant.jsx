@@ -17,6 +17,7 @@ const EXAMPLES = [
   "Какая прочность у ШОВ?",
   "Сравни ШОВ и Стандарт",
   "Какие есть фасовки ГКЛ?",
+  "Где производится ШОВ?",
 ];
 const SCOPE_LABEL = { public: "данные витрины", staff: "витрина и внутренние наблюдения", admin: "все данные, включая конфиденциальные" };
 const STATUS_LABEL = { single: "одно значение", agreed: "источники согласны", conflict: "расхождение", unresolved: "нерешённый вопрос сверки" };
@@ -161,6 +162,98 @@ function Suitability({ items, useCase, onCite }) {
         </div>
       ))}
       {sorted.length > 6 && <button type="button" className="btn btn-sm btn-ghost" onClick={() => setAll(!all)}>{all ? "Свернуть" : `Ещё ${sorted.length - 6}`}</button>}
+    </div>
+  );
+}
+
+// Factory Intelligence (Phase 3.4): статусы связи «завод производит товар»
+// посчитала система; здесь — только показ. Марка, каталог и документы —
+// отдельно от производства.
+const REL_LABEL = { CONFIRMED: "подтверждено", INFERRED: "косвенно", UNKNOWN: "нет данных", CONFLICTED: "противоречие" };
+const ROLE_LABEL = { manufacturer: "изготовитель", production_site: "площадка", producer: "производство" };
+const Refs = ({ refs, onCite, max = 4 }) => (refs || []).slice(0, max).map((id) => <button key={id} type="button" className="ai-ref" onClick={() => onCite(id)}>{id.slice(1)}</button>);
+
+function FactoryCard({ data, onCite }) {
+  const [all, setAll] = useState(false);
+  if (!data) return null;
+  const groups = all ? data.groups : (data.groups || []).slice(0, 6);
+  return (
+    <div className="ai-fac" role="region" aria-label="Завод">
+      <div className="ai-suit-head"><b>{data.name}</b>{data.legalName && <span className="hint">{data.legalName}</span>}</div>
+      {data.location && <div className="hint">{data.location.label}: {data.location.text}<Refs refs={[data.refs?.location].filter(Boolean)} onCite={onCite} /></div>}
+      {data.byStatus && (
+        <div className="ai-fac-stats">
+          <span>Товаров в каталоге: <b>{data.products ?? data.items?.length}</b></span>
+          {["CONFIRMED", "INFERRED", "UNKNOWN", "CONFLICTED"].filter((k) => data.byStatus[k]).map((k) => <span key={k} className={`ai-suit-badge r-${k}`}>{REL_LABEL[k]}: {data.byStatus[k]}</span>)}
+        </div>
+      )}
+      {groups?.length > 0 && (
+        <div className="ai-fac-groups">
+          {groups.map((g, i) => <span key={g.name} className="chip">{g.name} · {g.count}<Refs refs={[data.refs?.groups?.[i]].filter(Boolean)} onCite={onCite} max={1} /></span>)}
+          {data.groups.length > 6 && <button type="button" className="btn btn-sm btn-ghost" onClick={() => setAll(!all)}>{all ? "Свернуть" : `Ещё ${data.groups.length - 6}`}</button>}
+        </div>
+      )}
+      {data.unresolved?.length > 0 && <div className="hint">Не установлено: {data.unresolved.join("; ")}.</div>}
+    </div>
+  );
+}
+
+function FactoryProducts({ data, onCite }) {
+  const [all, setAll] = useState(false);
+  if (!data?.items?.length) return null;
+  const shown = all ? data.items : data.items.slice(0, 8);
+  return (
+    <div className="ai-suit" role="region" aria-label="Товары завода">
+      <div className="ai-sources-h">{data.group ? `Товары завода — ${data.group}` : "Товары завода"} · производство по данным</div>
+      {shown.map((x) => (
+        <div key={x.slug} className="ai-suit-card">
+          <div className="ai-suit-head"><b>{x.short}</b><span className={`ai-suit-badge r-${x.status}`}>{REL_LABEL[x.status]}</span></div>
+          <div className="hint">{x.category}<Refs refs={x.refs} onCite={onCite} max={3} /></div>
+        </div>
+      ))}
+      {data.items.length > 8 && <button type="button" className="btn btn-sm btn-ghost" onClick={() => setAll(!all)}>{all ? "Свернуть" : `Ещё ${data.items.length - 8}`}</button>}
+    </div>
+  );
+}
+
+function ProductFactory({ items, onCite }) {
+  if (!items?.length) return null;
+  return (
+    <div className="ai-suit" role="region" aria-label="Производитель / завод">
+      <div className="ai-sources-h">Производитель / завод</div>
+      {items.map((x) => (
+        <div key={x.slug} className="ai-suit-card" data-status={x.status}>
+          <div className="ai-suit-head"><b>{x.short}</b><span className={`ai-suit-badge r-${x.status}`}>{REL_LABEL[x.status]}</span></div>
+          <div className="hint">В каталоге: {x.catalog.factory}<Refs refs={[x.catalog.ref].filter(Boolean)} onCite={onCite} max={1} /></div>
+          {x.relations.map((r, i) => (
+            <div key={i} className="hint">{ROLE_LABEL[r.role] || r.role}: {r.factory} — {REL_LABEL[r.status]}{r.basis.length ? ` · ${r.basis.map((b) => b.text).join("; ")}` : ""}<Refs refs={r.basis.flatMap((b) => b.refs)} onCite={onCite} /></div>
+          ))}
+          {x.brands?.length > 0 && <div className="hint">Марка: {x.brands.join(", ")} — не завод</div>}
+          {x.needsReview && <div className="hint">Есть внутренние данные об изготовителе, нужна дополнительная сверка.</div>}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function Documents({ items, onCite }) {
+  const [all, setAll] = useState(false);
+  if (!items?.length) return null;
+  const shown = all ? items : items.slice(0, 6);
+  return (
+    <div className="ai-docs" role="region" aria-label="Заводские документы">
+      <div className="ai-sources-h">Заводские документы</div>
+      {shown.map((d) => (
+        <div key={d.id} className="ai-doc">
+          <div><b>{d.typeLabel}</b> · <span className={d.titleKnown === false ? "muted" : undefined}>{d.title}</span><Refs refs={d.refs} onCite={onCite} max={3} /></div>
+          <div className="hint">
+            {d.date ? `дата документа ${d.date}${d.dateBasis === "title" ? " (из названия)" : ""}` : d.kind === "mention" ? d.kindLabel : "дата документа не указана"}
+            {d.recordedInApp1 ? ` · записан в приложение №1 ${d.recordedInApp1}` : ""}{d.products?.length ? ` · ${d.products.join(", ")}` : ""}
+            {d.kind === "publication" ? " · публикация, не документ" : ""}
+          </div>
+        </div>
+      ))}
+      {items.length > 6 && <button type="button" className="btn btn-sm btn-ghost" onClick={() => setAll(!all)}>{all ? "Свернуть" : `Ещё ${items.length - 6}`}</button>}
     </div>
   );
 }
@@ -321,7 +414,7 @@ export default function Assistant({ inStore = false }) {
       <div className="ai-log" aria-live="polite">
         {!messages.length && !unavailable && (
           <div className="ai-empty">
-            <p className="muted">Спросите о товарах, характеристиках, применении или сравнении. Если в заводских данных есть расхождение, Habez AI покажет все значения и не станет выбирать одно.</p>
+            <p className="muted">Спросите о товарах, характеристиках, применении, сравнении, заводе и документах. Если в заводских данных есть расхождение, Habez AI покажет все значения и не станет выбирать одно.</p>
             <div className="ai-examples">
               {EXAMPLES.map((e) => <button key={e} type="button" className="chip" onClick={() => send(e)} disabled={busy}>{e}</button>)}
             </div>
@@ -337,6 +430,10 @@ export default function Assistant({ inStore = false }) {
               ) : null}
               {m.meta?.mode === "COMPARISON" && <Comparison data={m.meta.comparison} onCite={(id) => cite(i, id)} />}
               {m.meta?.suitability?.length > 0 && m.status !== "streaming" && <Suitability items={m.meta.suitability} useCase={m.meta.useCase} onCite={(id) => cite(i, id)} />}
+              {["FACTORY_PROFILE", "FACTORY_LOOKUP"].includes(m.meta?.mode) && m.status !== "streaming" && <FactoryCard data={m.meta.factory} onCite={(id) => cite(i, id)} />}
+              {m.meta?.mode === "FACTORY_PRODUCTS" && m.status !== "streaming" && <FactoryProducts data={m.meta.factory} onCite={(id) => cite(i, id)} />}
+              {m.meta?.productFactory?.length > 0 && m.status !== "streaming" && <ProductFactory items={m.meta.productFactory} onCite={(id) => cite(i, id)} />}
+              {m.meta?.documents?.length > 0 && m.status !== "streaming" && <Documents items={m.meta.documents} onCite={(id) => cite(i, id)} />}
               {m.meta?.application?.missing?.length > 0 && m.status !== "streaming" && <p className="hint">В данных Habez нет: {m.meta.application.missing.join(", ")}.</p>}
               {m.meta?.profile?.gaps?.length > 0 && m.status !== "streaming" && <p className="hint">В данных Habez нет: {m.meta.profile.gaps.join(", ")}.</p>}
               {m.meta?.clarification?.options?.length > 0 && m.status !== "streaming" && (

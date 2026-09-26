@@ -331,6 +331,45 @@ for (const [label, w, h, mobile] of [["desktop", 1280, 900, false], ["mobile-375
     await shot(`${label}-11-compare-task`);
   });
 
+  await check(`${label}: 3.4 — профиль завода, товар → завод, товары завода, документы, номер ведёт к документу, противоречие`, async () => {
+    await clickText("button", "Новая беседа");
+    fake.mode = "cite";
+    await ask("Что известно о заводе?");
+    await idle();
+    assert(await js(`${lastBot}.dataset.mode === "FACTORY_PROFILE" && !!${lastBot}.querySelector(".ai-fac")`), "карточка завода");
+    assert(await js(`${lastBot}.querySelector(".ai-fac").textContent.includes("адрес в реквизитах организации")`), "адрес — как адрес организации");
+    assert(await noHorizontalScroll(), "карточка завода шире экрана");
+    await js(`${lastBot}.scrollIntoView({ block: "start" }), true`); await sleep(300);
+    await shot(`${label}-12-factory-profile`);
+    await ask("Где производится ШОВ?");
+    await idle();
+    assert(await js(`${lastBot}.dataset.mode === "PRODUCT_FACTORY"`), "режим товар → завод");
+    await waitFor(`[...${lastBot}.querySelectorAll(".ai-suit-card")].some((c) => c.dataset.status === "INFERRED" && c.textContent.includes("косвенно"))`, "ШОВ — косвенно");
+    const ref = await js(`${lastBot}.querySelector(".ai-suit-card .ai-ref")?.textContent || ""`);
+    assert(ref, "у связи есть номер источника");
+    await js(`${lastBot}.querySelector(".ai-suit-card .ai-ref").click()`);
+    await waitFor(`${lastBot}.querySelector(".ai-source.on .ai-ref")?.textContent === ${JSON.stringify(ref)}`, "номер ведёт к источнику");
+    await ask("Какие ещё товары выпускает этот завод?");
+    await idle();
+    assert(await js(`${lastBot}.dataset.mode === "FACTORY_PRODUCTS" && ${lastBot}.querySelectorAll(".ai-suit-card").length >= 8`), "товары завода карточками");
+    assert(await js(`![...${lastBot}.querySelectorAll(".ai-suit-card b")].some((b) => b.textContent === "ШОВ")`), "ШОВ уже обсуждали — его нет");
+    await ask("Какие документы есть у ШОВ?");
+    await idle();
+    assert(await js(`${lastBot}.dataset.mode === "FACTORY_DOCUMENTS" && ${lastBot}.querySelectorAll(".ai-doc").length >= 2`), "список документов");
+    assert(await js(`${lastBot}.querySelector(".ai-docs").textContent.includes("2026-09-05")`), "дата письма технолога");
+    const dref = await js(`${lastBot}.querySelector(".ai-doc .ai-ref")?.textContent || ""`);
+    await js(`${lastBot}.querySelector(".ai-doc .ai-ref").click()`);
+    await waitFor(`${lastBot}.querySelector(".ai-source.on .ai-ref")?.textContent === ${JSON.stringify(dref)}`, "номер документа ведёт к источнику");
+    assert(await js(`[...document.querySelectorAll(".ai-doc, .ai-source")].every((x) => x.scrollWidth <= x.clientWidth + 1)`), "документ шире строки");
+    assert(await noHorizontalScroll(), "документы шире экрана");
+    await js(`${lastBot}.scrollIntoView({ block: "start" }), true`); await sleep(300);
+    await shot(`${label}-13-documents`);
+    await ask("Кто изготовитель ТЕПЛОКОМ?");
+    await idle();
+    await waitFor(`[...${lastBot}.querySelectorAll(".ai-suit-card")].some((c) => c.dataset.status === "CONFLICTED" && c.textContent.includes("противоречие"))`, "ТЕПЛОКОМ — противоречие");
+    assert(await noHorizontalScroll(), "противоречие шире экрана");
+  });
+
   await check(`${label}: беседа переживает перезагрузку, «Новая беседа» — чистый лист`, async () => {
     const n = await js(`document.querySelectorAll(".ai-msg").length`);
     await go("/admin/assistant");

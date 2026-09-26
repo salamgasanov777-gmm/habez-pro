@@ -31,6 +31,11 @@ const SOURCE_LABEL = {
   technical_document: "технический документ",
   public_source: "внешний источник",
   variant: "фасовка в каталоге",
+  // Phase 3.4
+  habez_registry: "реквизиты организации в Habez Pro",
+  mentioned: "назван в данных о товаре",
+  catalog: "каталог Habez Pro",
+  document: "документ",
 };
 export const sourceLabel = (t) => SOURCE_LABEL[t] || t;
 
@@ -189,6 +194,73 @@ export function createBundle({ scope, refBase = 0, maxEvidence = 160 }) {
         comparison.rows.push({ label: r.label, condition: r.conditionText, common: r.common, cells });
         lines.push(`- ${r.label}${r.conditionText ? ` (${r.conditionText})` : ""}: ${cells.map((c) => `${c.product} — ${c.missing ? "нет данных" : `${c.values.join(" | ")}${c.refs.length ? ` [${c.refs.join("][")}]` : ""}${["conflict", "unresolved"].includes(c.status) ? ` (спор${c.decisions?.length ? ` ${c.decisions.join(",")}` : ""})` : ""}`}`).join("; ")}`);
       }
+    },
+
+    // Phase 3.4: сведения о заводе из реквизитов (или о заводе, названном
+    // в данных). Возвращает номера записей.
+    factoryRecord(f) {
+      const refs = {};
+      lines.push(`\nЗАВОД: ${f.name} — ${f.status === "REGISTERED" ? "из реквизитов организации в Habez Pro" : "назван в данных о товаре (реквизитов этого завода в системе нет)"}`);
+      const rec = (key, label, value, where = null) => {
+        if (!value) return;
+        const id = add(norm({ kind: "factory_record", label, value, where, factoryId: f.id, sourceType: f.status === "REGISTERED" ? "habez_registry" : "mentioned" }));
+        if (id) { refs[key] = id; lines.push(`[${id}] ${label}: ${value}${where ? ` — ${where}` : ""}`); }
+      };
+      rec("name", "Название", f.name);
+      rec("legal", "Юридическое лицо (организация)", f.legalName);
+      rec("location", f.location?.label || "Адрес", f.location?.text, f.location?.kind === "organization_address" ? "адрес организации; что это адрес производственной площадки, в данных не сказано" : null);
+      rec("site", "Сайт", f.site);
+      rec("inn", "ИНН", f.requisites?.inn);
+      rec("ogrn", "ОГРН", f.requisites?.ogrn);
+      return refs;
+    },
+
+    // Отдельная запись о заводе (группа каталога, зарегистрированный источник).
+    record({ label, value, where = null, sourceType = "habez_registry", text = null }) {
+      const id = add(norm({ kind: "factory_record", label, value, where, sourceType }));
+      if (id) lines.push(`[${id}] ${text || `${label}: ${value}${where ? ` — ${where}` : ""}`}`);
+      return id;
+    },
+
+    // Товар в каталоге завода (ассортимент, не производство).
+    catalogEntry(p, factoryName) {
+      productsSeen.set(p.id, p.name);
+      const id = add(norm({ kind: "catalog", product: p.slug, productName: p.name, label: "в каталоге завода", value: p.category || "—", where: `каталог «${factoryName}»` }));
+      return id;
+    },
+
+    // Раздел карточки товара (упоминание документа, изготовителя).
+    cardSection(p, title, text) {
+      productsSeen.set(p.id, p.name);
+      const id = add(norm({ kind: "catalog_card", product: p.slug, productName: p.name, label: title, value: text, where: `раздел «${title}»` }));
+      if (id) lines.push(`[${id}] ${p.short || p.name} · раздел «${title}»: ${text}`);
+      return id;
+    },
+
+    // Документ (группа наблюдений с одним источником) и что в нём указано.
+    document(d, { maxObs = 12 } = {}) {
+      const access = d.access.includes("confidential") ? "confidential" : d.access.includes("internal") ? "internal" : "public";
+      const id = add(norm({ kind: "document", label: d.typeLabel, value: d.title, docId: d.id, sourceType: d.type, sourceDate: d.date?.value ?? null,
+        sourceReference: d.reference, access, product: d.products[0]?.slug ?? null, productName: d.products.map((x) => x.name).join(", "), where: d.kindLabel }));
+      if (!id) return { ref: null, obs: new Map() };
+      const date = d.date?.value ? `дата документа: ${d.date.value}${d.date.basis === "title" ? " (из названия)" : ""}`
+        : d.date?.values ? `в записях разные даты документа: ${d.date.values.join(", ")} — не выбирать одну` : "дата документа не указана";
+      lines.push(`[${id}] ДОКУМЕНТ: ${d.typeLabel} — «${d.title}» (${d.kindLabel}); ${date}${d.revision ? `; редакция ${d.revision}` : ""}`
+        + `${d.recordedInApp1 ? `; записан в приложение №1 ${d.recordedInApp1} — это НЕ дата документа` : ""}${d.capturedAt ? `; внесён в Habez Pro ${d.capturedAt}` : ""}`
+        + `; товары: ${d.products.map((x) => x.short).join(", ")}${d.providedBy.length ? `; передал: ${d.providedBy.map((r) => (r === "factory_technologist" ? "технолог завода (роль)" : r)).join(", ")}` : ""}`
+        + `; доступ: ${access}${d.dateConflict ? "; дата в названии и дата в записи расходятся" : ""}`);
+      const obs = new Map();
+      for (const o of d.observations.slice(0, maxObs)) {
+        productsSeen.set(o.productId, o.productName);
+        const oid = add(norm({ kind: "observation", product: o.slug, productName: o.productName, label: o.label, property: o.label, value: o.value, condition: o.condition,
+          observationId: o.id, sourceType: d.type, sourceReference: d.reference, sourceDate: d.date?.value ?? null, access: o.access, verification: o.verification,
+          statementType: o.statement, docId: d.id }, { status: o.disputed ? "conflict" : null }));
+        if (!oid) break;
+        obs.set(o.id, oid);
+        lines.push(`  [${oid}] в документе указано: ${o.product} · ${o.label}: ${o.value}${o.condition ? ` (условие: ${o.condition})` : ""}${o.disputed ? " — у этого свойства в данных есть и другие значения; победителя нет" : ""}`);
+      }
+      if (d.observations.length > maxObs) lines.push(`  …ещё ${d.observations.length - maxObs} значений в этом документе`);
+      return { ref: id, obs };
     },
 
     // Ответ общего поиска (search_knowledge).

@@ -12,7 +12,14 @@
 //                          ключу и условию, споры, пропуски (Phase 3.2);
 //   search_knowledge     — общий поиск: товары, характеристики, условия,
 //                          фасовки, разделы карточек; сотрудникам ещё
-//                          наблюдения, источники и вопросы сверки.
+//                          наблюдения, источники и вопросы сверки;
+//   search_factories     — заводы: из реквизитов и названные в данных (3.4);
+//   get_factory          — профиль завода: реквизиты, группы, документы,
+//                          виды источников, чего нет;
+//   get_factory_products — товары завода со статусом связи
+//                          (CONFIRMED / INFERRED / UNKNOWN / CONFLICTED);
+//   get_factory_documents — заводские документы по товарам, виду,
+//                          характеристике.
 //
 // Phase 3.2: у каждого инструмента — описание, схема входа и выхода, права
 // и признак read_only / write: false (TOOL_SPECS). callTool проверяет
@@ -26,6 +33,7 @@ import { openItemsFor } from "../../knowledge/evidence-projection.js";
 import { evidenceKeyMeta } from "../../knowledge/evidence-model.js";
 import { evidenceRoleForScope } from "../permissions.js";
 import { groupCardProperties, groupObservationProperties, sameValueKey } from "../retrieval/conflicts.js";
+import { loadFactoryData, searchFactories, factoryProfile, factoryProducts, factoryDocuments, productFactory, GROUPS } from "../factory/model.js";
 
 const json = (s, d) => { try { return JSON.parse(s); } catch { return d; } };
 const PUBLISHED = "p.status='published'";
@@ -45,6 +53,11 @@ const schemas = {
   get_product_evidence: z.object({ productId: z.number().int().positive() }),
   compare_products: z.object({ productIds: z.array(z.number().int().positive()).min(2).max(4), keyFilter: z.any().optional() }),
   search_knowledge: z.object({ terms: z.array(z.string().min(2).max(40)).max(12), limit: z.number().int().min(1).max(20).default(8), minScore: z.number().int().min(1).max(5).default(1) }),
+  search_factories: z.object({ terms: z.array(z.string().min(2).max(60)).max(12) }),
+  get_factory: z.object({ factoryId: z.string().regex(/^[a-z0-9а-я-]{1,60}$/) }),
+  get_factory_products: z.object({ factoryId: z.string().regex(/^[a-z0-9а-я-]{1,60}$/), group: z.string().max(40).nullable().optional(), productIds: z.array(z.number().int().positive()).max(60).optional() }),
+  get_factory_documents: z.object({ factoryId: z.string().regex(/^[a-z0-9а-я-]{1,60}$/).nullable().optional(), productIds: z.array(z.number().int().positive()).max(60).optional(),
+    types: z.array(z.string().regex(/^[a-z_]{2,40}$/)).max(12).optional(), specKeys: z.array(z.string().regex(/^[a-z0-9_]{2,40}$/)).max(12).optional() }),
 };
 
 function searchProducts(ctx, { terms, limit }) {
@@ -222,9 +235,28 @@ function searchKnowledge(ctx, { terms, limit, minScore }) {
   return { items: out.filter((x) => x.score >= minScore).sort((a, b) => b.score - a.score || a.productId - b.productId).slice(0, limit) };
 }
 
+// Factory Intelligence (Phase 3.4): тот же контекст роли, те же правила
+// видимости (factory/model.js). Выход — производные записи, база не меняется.
+const groupByLabel = (label) => (label ? GROUPS.find((g) => g.label === label) || null : null);
 const IMPL = {
   search_products: searchProducts, get_product: getProduct, get_product_specs: getProductSpecs,
   get_product_evidence: getProductEvidence, compare_products: compareProducts, search_knowledge: searchKnowledge,
+  search_factories: (ctx, { terms }) => ({ items: searchFactories(loadFactoryData(ctx), terms) }),
+  get_factory: (ctx, { factoryId }) => {
+    const data = loadFactoryData(ctx);
+    return data.factories.has(factoryId) ? factoryProfile(data, factoryId) : null;
+  },
+  get_factory_products: (ctx, { factoryId, group, productIds }) => {
+    const data = loadFactoryData(ctx);
+    return data.factories.has(factoryId) ? factoryProducts(data, factoryId, { group: groupByLabel(group), productIds }) : null;
+  },
+  get_factory_documents: (ctx, args) => {
+    const data = loadFactoryData(ctx);
+    const out = factoryDocuments(data, args);
+    // Гостю документы слоя знаний не видны: только упоминания в карточке.
+    const products = (args.productIds || []).map((id) => data.productsById.get(id)).filter(Boolean).map((p) => productFactory(data, p));
+    return { ...out, products };
+  },
 };
 
 export const TOOL_NAMES = Object.keys(IMPL);
@@ -271,6 +303,30 @@ export const TOOL_SPECS = {
     input_schema: { type: "object", properties: { query: { type: "string" } }, required: ["query"] },
     output_schema: "найденные строки с типом (товар, раздел, строка карточки, фасовка, наблюдение, вопрос сверки)",
     permissions: { public: "витрина: товары, разделы, строки карточек, фасовки", staff: "+ наблюдения public+internal, вопросы сверки", admin: "+ конфиденциальные наблюдения" },
+  },
+  search_factories: {
+    description: "Найти завод или производственную площадку: завод из реквизитов организации и заводы, прямо названные в данных о товарах как изготовитель или место производства.",
+    input_schema: { type: "object", properties: { query: { type: "string", description: "Название завода или слово «завод»" } }, required: ["query"] },
+    output_schema: "заводы: имя, юрлицо, статус (из реквизитов / назван в данных), основание",
+    permissions: { public: "реквизиты витрины", staff: "+ заводы, названные во внутренних наблюдениях", admin: "+ конфиденциальные" },
+  },
+  get_factory: {
+    description: "Профиль завода: название, юрлицо, адрес из реквизитов (это адрес организации, не площадки), марки, товарные группы, документы, виды источников, что не установлено. Площади, мощности, численности в данных нет.",
+    input_schema: { type: "object", properties: { factory: { type: "string", description: "Название завода; пусто — завод из реквизитов" } } },
+    output_schema: "профиль завода с основаниями",
+    permissions: { public: "реквизиты, каталог, упоминания документов в карточках", staff: "+ документы и наблюдения public+internal", admin: "+ конфиденциальные" },
+  },
+  get_factory_products: {
+    description: "Товары завода со статусом связи «производит»: CONFIRMED (источник прямо называет изготовителя), INFERRED (косвенно), UNKNOWN (нет данных), CONFLICTED (источники противоречат). Можно сузить товарной группой: сухие смеси, краски, гипсокартон, грунтовки…",
+    input_schema: { type: "object", properties: { factory: { type: "string" }, group: { type: "string", description: "Товарная группа словами" } } },
+    output_schema: "товары: раздел каталога, статус связи, основания; сводка по группам",
+    permissions: { public: "каталог витрины", staff: "+ основания из внутренних документов", admin: "+ конфиденциальные" },
+  },
+  get_factory_documents: {
+    description: "Заводские документы: паспорт качества, этикетка, маркировочная карточка, письмо технолога, сайт, прайс, карточка товара. По товару, виду документа или характеристике. У документа — вид, дата документа (если известна), товары, наблюдения.",
+    input_schema: { type: "object", properties: { products: { type: "array", items: PRODUCT }, type: { type: "string", description: "Вид: паспорт качества, этикетка, письмо технолога, прайс, сайт" }, specs: SPECS } },
+    output_schema: "документы: вид, название, дата документа, дата записи, товары, наблюдения, доступ",
+    permissions: { public: "только упоминания документов в карточках витрины", staff: "документы public+internal", admin: "всё" },
   },
 };
 for (const [name, spec] of Object.entries(TOOL_SPECS)) Object.assign(spec, { name, read_only: true, write: false });

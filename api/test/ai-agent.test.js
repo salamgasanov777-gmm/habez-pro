@@ -269,7 +269,7 @@ describe("приватность и доступ", () => {
     assert.throws(() => tools.callTool("get_product", { productId: "x" }, { tenantId: 1, scope: "staff" }));
     assert.throws(() => tools.callTool("get_product", { productId: 1 }, null), /контекст/);
     assert.throws(() => tools.callTool("update_product", {}, { tenantId: 1, scope: "admin" }), /нет инструмента/);
-    assert.deepEqual(tools.TOOL_NAMES.sort(), ["compare_products", "get_product", "get_product_evidence", "get_product_specs", "search_knowledge", "search_products"]);
+    assert.deepEqual(tools.TOOL_NAMES.sort(), ["compare_products", "get_factory", "get_factory_documents", "get_factory_products", "get_product", "get_product_evidence", "get_product_specs", "search_factories", "search_knowledge", "search_products"]);
   });
 
   test("HTTP: гость и покупатель — витрина, сотрудник — staff, админ — admin", async () => {

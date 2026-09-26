@@ -35,6 +35,9 @@ import { runIntel, comparisonSuitability } from "../intel/run.js";
 import { useCaseById } from "../intel/usecases.js";
 import { suitabilityMismatch } from "../intel/suitability.js";
 import { applicationSections } from "../intel/profile.js";
+import { FACTORY_INTENTS } from "../retrieval/router.js";
+import { runFactory, renderProductFactory } from "../factory/run.js";
+import { factoryMismatch, inventedDocuments, unsupportedDates } from "../factory/check.js";
 
 // Вопрос только о таких характеристиках — вопрос о применении (Phase 3.3).
 const APPLICATION_KEYS = new Set(["water_per_bag", "water_ratio", "water_mix_ratio", "layer_thickness", "layer_thickness_wall", "layer_thickness_floor",
@@ -123,6 +126,13 @@ export async function runAgent({ tenantId, scope, question, history = [], state 
     clarification = { question: `По каким характеристикам сравнить ${names(route.products.map((p) => p.short_name || p.name)).replace(" или ", " и ")}? Например: ${opts.join(", ")}.`, options: [`Сравни ${route.products.map((p) => p.short_name || p.name).join(" и ")} по прочности, времени схватывания и расходу воды`] };
     fixed = clarification.question;
   }
+  // Factory Intelligence (Phase 3.4): заводы, ассортимент, документы —
+  // правилами, до модели.
+  let factory = null;
+  if (!mode && FACTORY_INTENTS.has(route.intent)) {
+    factory = runFactory({ route, q, ctx, bundle, calls, allowed, state });
+    mode = factory.mode; if (factory.fixed) fixed = factory.fixed;
+  }
   // Product Intelligence (Phase 3.3): паспорт, подбор, пригодность,
   // применение, совместимость — правилами, до модели.
   let intel = null;
@@ -136,6 +146,18 @@ export async function runAgent({ tenantId, scope, question, history = [], state 
       products.push(...intel.products.filter((x) => x.sp !== undefined && x.p));
       if (intel.variant) chosenVariant = intel.variant;
     }
+  }
+  // Паспорт товара (3.3) + производитель и заводские документы (3.4) —
+  // только то, что есть в данных.
+  let profileFactory = null;
+  if (intel?.mode === "PRODUCT_PROFILE" && intel.products[0]?.p) {
+    const t = Date.now();
+    const pid = intel.products[0].p.id;
+    const res = callTool("get_factory_documents", { productIds: [pid] }, ctx);
+    calls.push({ name: "get_factory_documents", source: "plan", ms: Date.now() - t, found: res.documents.length });
+    bundle.note("\nПРОИЗВОДИТЕЛЬ / ЗАВОД (в паспорте — коротко, отдельным разделом; статус связи посчитала система):");
+    profileFactory = renderProductFactory({ items: res.products, docs: res.documents, bundle, allowed, scope })[0] || null;
+    if (intel.profile && profileFactory) intel.profile.factory = { status: profileFactory.status, label: profileFactory.label, factory: profileFactory.catalog.factory, documents: profileFactory.documents };
   }
   const useCase = route.useCase ? useCaseById(route.useCase) : null;
   let suitability = intel?.suitability || null;
@@ -276,7 +298,8 @@ export async function runAgent({ tenantId, scope, question, history = [], state 
   }
   const tRetrieval = Date.now();
   const conflicts = ctxResult.properties.filter((p) => p.status === "conflict" || p.status === "unresolved");
-  const next = nextState(route, state, { variant: chosenVariant, awaiting, focus: intel?.focus || null });
+  const factoryId = factory?.factoryId ?? (profileFactory ? profileFactory.mainFactoryId : undefined);
+  const next = nextState(route, state, { variant: chosenVariant, awaiting, focus: intel?.focus || null, factoryId: factoryId === null ? undefined : factoryId });
   const safeRoute = {
     intent: route.intent, products: route.products.map((p) => p.short_name || p.name), productSlugs: route.products.map((p) => p.slug), productsFrom: route.productsFrom,
     specs: route.specs.terms, specKeys: route.specs.keys, ambiguousSpec: route.specs.ambiguous, conditions: route.conditions,
@@ -293,6 +316,7 @@ export async function runAgent({ tenantId, scope, question, history = [], state 
     comparison: ctxResult.comparison,
     useCase: useCase ? { id: useCase.id, label: useCase.label } : null,
     suitability, profile: intel?.profile || null, application: intel?.application || null, compatibility: intel?.compatibility || null,
+    factory: factory?.factory || null, productFactory: factory?.productFactory || (profileFactory ? [profileFactory] : null), documents: factory?.documents || null,
     clarification,
     evidenceCount: ctxResult.evidence.length, refBase,
   });
@@ -319,7 +343,8 @@ export async function runAgent({ tenantId, scope, question, history = [], state 
     let messages = [...cleanHistory(history), { role: "user", content: `ДАННЫЕ HABEZ:\n${text}\n\nВОПРОС: ${q}` }];
     const timeout = AbortSignal.timeout(budget.totalTimeoutMs);
     const sig = signal ? AbortSignal.any([signal, timeout]) : timeout;
-    const hints = { properties: ctxResult.properties, found: ctxResult.found, variants: ctxResult.variants, unknown: route.unknown, comparison: ctxResult.comparison, mode };
+    const hints = { properties: ctxResult.properties, found: ctxResult.found, variants: ctxResult.variants, unknown: route.unknown, comparison: ctxResult.comparison, mode,
+      lines: factoryDigest(factory, profileFactory) };
     for (let turn = 1; turn <= budget.maxTurns; turn += 1) {
       turns = turn;
       // Последний ход — без вызовов: модель отвечает по тому, что есть.
@@ -354,6 +379,13 @@ export async function runAgent({ tenantId, scope, question, history = [], state 
     }
   }
   const tLlm = Date.now();
+  // Модель не вернула ни слова (редкий сбой провайдера): пустой ответ не
+  // выдаётся за готовый — пользователь видит, что нужно повторить вопрос.
+  const emptyAnswer = llm && !answer.trim();
+  if (emptyAnswer) {
+    answer = "Модель не вернула ответ. Данные по вопросу найдены — повторите вопрос, пожалуйста.";
+    onEvent("delta", { text: answer });
+  }
 
   // 4. Проверка по ВСЕМ данным ответа (план + инструменты модели).
   const final = bundle.result();
@@ -382,21 +414,38 @@ export async function runAgent({ tenantId, scope, question, history = [], state 
     statusMismatch: fixed || !suitability ? [] : suitabilityMismatch(answer, suitability),
   };
   if (grounding.statusMismatch.length) grounding.grounded = false;
+  grounding.emptyAnswer = emptyAnswer;
+  if (emptyAnswer) grounding.grounded = false;
+  // Phase 3.4: завод назван изготовителем без основания, выдуманный
+  // документ или дата.
+  const relItems = factory?.productFactory || (profileFactory ? [profileFactory] : []);
+  const docTypesAvailable = [...new Set([...final.evidence.filter((e) => e.kind === "document").map((e) => e.sourceType),
+    ...(factory?.documents || []).map((d) => d.type), ...(/сертифиц|сертификат/i.test(final.text) ? ["certificate"] : [])])];
+  grounding.factoryMismatch = fixed ? [] : factoryMismatch(answer, relItems);
+  grounding.inventedDocuments = fixed || !(factory || profileFactory) ? [] : inventedDocuments(answer, docTypesAvailable);
+  grounding.unsupportedDates = fixed ? [] : unsupportedDates(answer, final.text, q);
+  if (grounding.factoryMismatch.length || grounding.inventedDocuments.length || grounding.unsupportedDates.length) grounding.grounded = false;
   const metrics = {
     tool_calls: calls.length, tool_calls_plan: calls.filter((c) => c.source === "plan").length, tool_calls_model: calls.filter((c) => c.source === "model").length,
     turns, evidence: final.evidence.length, context_chars: bundle.size().chars,
     // Подбор кандидатов, пригодность, паспорт, инструкция — детерминированная часть 3.3.
     intel_ms: intelMs,
+    // Factory Intelligence: поиск завода, документы, сборка связей в пакет.
+    factory_ms: factory?.timings?.factoryMs ?? 0, documents_ms: factory?.timings?.documentsMs ?? 0, graph_ms: factory?.timings?.graphMs ?? 0,
     retrieval_ms: timings.retrievalMs, context_ms: timings.contextMs, model_ms: timings.llmMs, total_ms: timings.totalMs,
     input_tokens: usage.input_tokens, output_tokens: usage.output_tokens,
   };
   // Источники: на что сослался ответ + ячейки таблицы сравнения (на них
   // можно нажать, даже если в тексте ссылки нет).
-  const tableRefs = new Set([...(final.comparison?.rows || []).flatMap((r) => r.cells.flatMap((c) => c.refs || [])), ...(suitability || []).flatMap((s) => s.refs || [])]);
+  const tableRefs = new Set([...(final.comparison?.rows || []).flatMap((r) => r.cells.flatMap((c) => c.refs || [])), ...(suitability || []).flatMap((s) => s.refs || []),
+    ...(factory?.productFactory || []).flatMap((x) => x.refs || []), ...(factory?.documents || []).flatMap((d) => d.refs || []).slice(0, 40),
+    ...(factory?.factory?.items || []).flatMap((x) => x.refs || []).slice(0, 40), ...Object.values(factory?.factory?.refs || {}).flat()]);
   const cited = [...check.citations, ...final.evidence.filter((e) => tableRefs.has(e.id) && !check.citations.includes(e))];
   const result = {
     answer, intent: route.intent, mode, route: safeRoute, scope, stopReason, usage, suitability, useCase: useCase?.id ?? null,
     profile: intel?.profile || null, application: intel?.application || null, compatibility: intel?.compatibility || null,
+    factory: factory?.factory || null, productFactory: factory?.productFactory || (profileFactory ? [profileFactory] : null), documents: factory?.documents || null,
+    factoryId: factory?.factoryId ?? null,
     citations: cited.map((e) => publicCitation(e, scope)),
     grounding,
     withheld: check.forbidden.length > 0,
@@ -413,4 +462,21 @@ export async function runAgent({ tenantId, scope, question, history = [], state 
     model: result.model, latencyMs: result.latencyMs, timings, metrics, stopReason, truncated: stopReason === "max_tokens",
   });
   return result;
+}
+
+// Сводка для заглушки модели (тесты без сети): те же сведения, что в пакете,
+// строками со ссылками.
+function factoryDigest(factory, profileFactory) {
+  const out = [];
+  const b = (refs) => (refs?.length ? ` ${refs.map((r) => `[${r}]`).join("")}` : "");
+  const f = factory?.factory;
+  if (f?.refs) {
+    out.push(`Завод: ${f.name}${b([f.refs.name])}`);
+    if (f.location) out.push(`${f.location.label}: ${f.location.text}${b([f.refs.location])}`);
+    for (const [i, g] of (f.groups || []).entries()) if (f.refs.groups?.[i]) out.push(`Раздел «${g.name}»: ${g.count} товаров${b([f.refs.groups[i]])}`);
+  }
+  for (const x of f?.items || []) out.push(`${x.short}: производство — ${x.label}${b(x.refs)}`);
+  for (const x of [...(factory?.productFactory || []), ...(profileFactory ? [profileFactory] : [])]) out.push(`${x.short}: ${x.relations.map((r) => `${r.factory} — ${r.label}`).join("; ")}${b(x.refs)}`);
+  for (const d of factory?.documents || []) out.push(`Документ: ${d.typeLabel} «${d.title}»${d.date ? `, дата ${d.date}` : ", дата не указана"}${b(d.refs.slice(0, 4))}`);
+  return out;
 }

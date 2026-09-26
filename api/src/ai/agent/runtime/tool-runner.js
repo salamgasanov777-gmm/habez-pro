@@ -12,12 +12,20 @@ import { resolveProducts } from "../retrieval/resolver.js";
 import { resolveSpecs, parseConditions, matchVariant } from "../retrieval/specs.js";
 import { searchTerms } from "../retrieval/intent.js";
 import { selectProperties, fetchProduct } from "./plan.js";
+import { runFactory } from "../factory/run.js";
+import { groupFromQuestion } from "../factory/model.js";
+import { docTypesFromQuestion } from "../factory/route.js";
 
 export function createToolRunner({ ctx, catalog, bundle, budget, calls, allowed }) {
   const seen = new Set();
+  const low = (x) => String(x || "").toLowerCase().replace(/ё/g, "е").replace(/[«»"]/g, "").trim();
   const product = (name) => {
     const hit = resolveProducts(String(name || ""), catalog).products[0];
-    return hit ? catalog.find((p) => p.id === hit.id) : null;
+    if (hit) return catalog.find((p) => p.id === hit.id);
+    // Модель называет товар его коротким или полным именем, даже если оно —
+    // обычное слово («Гидроизоляция»): точное совпадение — это он.
+    const n = low(name);
+    return catalog.find((p) => low(p.short_name) === n || low(p.name) === n) || null;
   };
   const routeFor = (specs = []) => {
     const r = resolveSpecs((specs || []).join(", "));
@@ -69,6 +77,24 @@ export function createToolRunner({ ctx, catalog, bundle, budget, calls, allowed 
           allowed.add(p.id);
         }
         bundle.comparison(cmp);
+      } else if (["search_factories", "get_factory", "get_factory_products", "get_factory_documents"].includes(name)) {
+        // Phase 3.4: тот же путь, что у плана (factory/run.js), с правами роли.
+        if (name === "search_factories") {
+          const items = callTool("search_factories", { terms: searchTerms(String(input.query || "завод")).slice(0, 12) }, ctx).items;
+          calls.push({ name, source: "model", ms: Date.now() - t0, found: items.length });
+          if (!items.length) return "Такого завода в данных Habez нет.";
+          for (const f of items) bundle.note(`Завод: ${f.name}${f.legalName ? ` (${f.legalName})` : ""} — ${f.basis}`);
+        } else {
+          const ps = (input.products || []).map(product).filter(Boolean);
+          if ((input.products || []).length && !ps.length) return "Товары не найдены в каталоге Habez.";
+          const intent = { get_factory: "factory_profile", get_factory_products: "factory_products", get_factory_documents: "factory_documents" }[name];
+          const text = `${input.factory || ""} ${input.group || ""} ${input.type || ""}`;
+          const route = { intent, products: ps, specs: routeFor(input.specs).specs,
+            factory: { group: groupFromQuestion(text)?.label ?? null, docTypes: docTypesFromQuestion(String(input.type || "").toLowerCase()), from: null } };
+          const out = runFactory({ route, q: String(input.factory || ""), ctx, bundle, calls: [], allowed });
+          calls.push({ name, source: "model", ms: Date.now() - t0, found: out.mode === "NOT_FOUND" ? 0 : 1 });
+          if (out.fixed) return out.fixed;
+        }
       } else if (name === "get_product_evidence") {
         const p = product(input.product);
         if (!p) return `Товара «${input.product}» в каталоге Habez нет.`;
@@ -83,7 +109,7 @@ export function createToolRunner({ ctx, catalog, bundle, budget, calls, allowed 
         bundle.knowledge(items);
       } else {
         const p = product(input.product);
-        if (!p) return `Товара «${input.product}» в каталоге Habez нет — данных о нём нет.`;
+        if (!p) return `Товар по названию «${input.product}» однозначно не найден. Не утверждай, что его нет в каталоге: скажи, что название нужно уточнить.`;
         const route = name === "get_product" ? { specs: { keys: [], groups: [] } } : routeFor(input.specs);
         if (name === "get_product") {
           const got = callTool("get_product", { productId: p.id }, ctx);

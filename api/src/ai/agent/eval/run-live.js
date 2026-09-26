@@ -17,7 +17,7 @@ import { db, all } from "../../../db/index.js";
 import { getProvider } from "../provider/index.js";
 import { runAgent } from "../runtime/agent.js";
 import { loadEvalCases, evaluateCase } from "./grounding-eval.js";
-import { loadEval32, runConversation, evaluateCase32, EVAL33_FILE } from "./eval-3-2.js";
+import { loadEval32, runConversation, evaluateCase32, evalFileForSet } from "./eval-3-2.js";
 
 const arg = (name, d = null) => {
   const i = process.argv.indexOf(`--${name}`);
@@ -48,8 +48,8 @@ console.log(`Habez AI eval · ${provider.name} ${provider.model} · уровен
 console.log(`отпечаток базы до: ${before}\n`);
 
 const results = [];
-if (set === "3.2" || set === "3.3") {
-  const data = set === "3.3" ? loadEval32(EVAL33_FILE) : loadEval32();
+if (["3.2", "3.3", "3.4"].includes(set)) {
+  const data = loadEval32(evalFileForSet(set));
   const pick = only || new Set(data.live);
   for (const c of [...data.cases, ...(data.live_extra || [])]) {
     if (!pick.has(c.id)) continue;
@@ -59,7 +59,10 @@ if (set === "3.2" || set === "3.3") {
     results.push({ ...ev, question: c.turns.join(" → "), behavior: c.expected_behavior.text, answer: last.answer, mode: last.mode, route: last.route,
       grounding: last.grounding, timings: last.timings, metrics: last.metrics, toolCalls: last.toolCalls,
       usage: { input_tokens: sum((t) => t.usage?.input_tokens), output_tokens: sum((t) => t.usage?.output_tokens) },
-      model: last.model, turnsModel: turns.filter((t) => t.model).length });
+      model: last.model, turnsModel: turns.filter((t) => t.model).length,
+      // По каждой реплике: как закончился ответ модели, длина, ходы, токены.
+      perTurn: turns.map((t) => ({ intent: t.intent, mode: t.mode, stopReason: t.stopReason, answerChars: t.answer.length, turns: t.metrics.turns,
+        in: t.usage?.input_tokens ?? 0, out: t.usage?.output_tokens ?? 0, ms: t.timings.totalMs })) });
     console.log(`${ev.pass ? "PASS" : "FAIL"} #${c.id} ${c.turns.join(" → ")}  [${last.mode}; инструменты: ${last.toolCalls.map((t) => `${t.source === "model" ? "M:" : ""}${t.name}`).join(",")}] (${last.timings.totalMs} мс${ev.warn.length ? `; ${ev.warn.join("; ")}` : ""})`);
     for (const f of ev.fails) console.log(`     ✗ ${f}`);
   }
@@ -85,6 +88,9 @@ const summary = {
     retrieval: { median: med(results.map((r) => r.timings.retrievalMs)), max: Math.max(...results.map((r) => r.timings.retrievalMs)) },
     context: { median: med(results.map((r) => r.timings.contextMs)), max: Math.max(...results.map((r) => r.timings.contextMs)) },
     intel: { median: med(results.map((r) => r.metrics?.intel_ms ?? 0)), max: Math.max(...results.map((r) => r.metrics?.intel_ms ?? 0)) },
+    factory: { median: med(results.map((r) => r.metrics?.factory_ms ?? 0)), max: Math.max(...results.map((r) => r.metrics?.factory_ms ?? 0)) },
+    documents: { median: med(results.map((r) => r.metrics?.documents_ms ?? 0)), max: Math.max(...results.map((r) => r.metrics?.documents_ms ?? 0)) },
+    graph: { median: med(results.map((r) => r.metrics?.graph_ms ?? 0)), max: Math.max(...results.map((r) => r.metrics?.graph_ms ?? 0)) },
     firstToken: { median: med(llm.map((r) => r.timings.llmFirstTokenMs)), max: Math.max(...llm.map((r) => r.timings.llmFirstTokenMs)) },
     llm: { median: med(llm.map((r) => r.timings.llmMs)), max: Math.max(...llm.map((r) => r.timings.llmMs)) },
     total: { median: med(results.map((r) => r.timings.totalMs)), max: Math.max(...results.map((r) => r.timings.totalMs)) },

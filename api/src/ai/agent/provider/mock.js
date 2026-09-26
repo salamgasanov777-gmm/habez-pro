@@ -8,6 +8,7 @@ export function createMockProvider() {
     for (const n of hints?.unknown || []) lines.push(`Товара «${n}» в каталоге Habez нет, данных о нём тоже нет.`);
     for (const f of hints?.found || []) lines.push(`Подходит по данным каталога: ${f.name} [${f.ref}]`);
     for (const v of hints?.variants || []) lines.push(`${v.product}, фасовка: ${v.unit} [${v.ref}]`);
+    for (const l of hints?.lines || []) lines.push(l);
     if (!props.length && !lines.length) return "В данных Habez по этому вопросу ничего не найдено.";
     for (const p of props) {
       const cond = p.conditionText ? ` (${p.conditionText})` : "";

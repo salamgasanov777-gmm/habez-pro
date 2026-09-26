@@ -754,6 +754,14 @@ h3 { font-size: 16px; }
 .ai-suit-badge.s-SUPPORTED { background: var(--ok-soft); color: var(--ok); }
 .ai-suit-badge.s-PARTIALLY_SUPPORTED, .ai-suit-badge.s-CONFLICTED { background: var(--gold-soft); color: var(--warn); }
 .ai-suit-badge.s-NOT_SUPPORTED { color: var(--danger); }
+/* Phase 3.4: завод и документы */
+.ai-suit-badge.r-CONFIRMED { background: var(--ok-soft); color: var(--ok); }
+.ai-suit-badge.r-INFERRED, .ai-suit-badge.r-CONFLICTED { background: var(--gold-soft); color: var(--warn); }
+.ai-fac { border: 1px solid var(--line); border-radius: var(--r); padding: 10px 12px; display: grid; gap: 6px; min-width: 0; overflow-wrap: anywhere; }
+.ai-fac-stats, .ai-fac-groups { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; font-size: 13.5px; }
+.ai-fac-groups .chip { font-size: 12.5px; white-space: normal; max-width: 100%; height: auto; text-align: left; flex: 0 1 auto; cursor: default; }
+.ai-docs { display: grid; gap: 6px; }
+.ai-doc { border-left: 3px solid var(--line); padding: 3px 0 3px 10px; min-width: 0; overflow-wrap: anywhere; font-size: 14px; }
 .ai-error { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; color: var(--danger); font-size: 14px; }
 .ai-typing { display: inline-flex; gap: 5px; padding: 4px 0; }
 .ai-typing span { width: 7px; height: 7px; border-radius: 50%; background: var(--ink-3); animation: ai-dot 1s infinite ease-in-out; }

@@ -225,7 +225,7 @@ describe("шесть инструментов: права, только чтен
     assert.deepEqual(tools.callTool("search_knowledge", { terms: ["абракадабра"] }, T("admin")).items, []);
   });
 
-  test("все шесть — только чтение: ни одной записи в базу", () => {
+  test("все десять — только чтение: ни одной записи в базу", () => {
     const n = changes();
     for (const s of all3) {
       tools.callTool("search_products", { terms: ["шов"] }, T(s));
@@ -234,9 +234,13 @@ describe("шесть инструментов: права, только чтен
       tools.callTool("get_product_evidence", { productId: ids.shov }, T(s));
       tools.callTool("compare_products", { productIds: [ids.shov, ids.standart] }, T(s));
       tools.callTool("search_knowledge", { terms: ["мпа"] }, T(s));
+      tools.callTool("search_factories", { terms: ["завод"] }, T(s));
+      tools.callTool("get_factory", { factoryId: "home" }, T(s));
+      tools.callTool("get_factory_products", { factoryId: "home" }, T(s));
+      tools.callTool("get_factory_documents", { productIds: [ids.shov] }, T(s));
     }
     assert.equal(changes(), n);
-    assert.deepEqual([...tools.TOOL_NAMES].sort(), ["compare_products", "get_product", "get_product_evidence", "get_product_specs", "search_knowledge", "search_products"]);
+    assert.deepEqual([...tools.TOOL_NAMES].sort(), ["compare_products", "get_factory", "get_factory_documents", "get_factory_products", "get_product", "get_product_evidence", "get_product_specs", "search_factories", "search_knowledge", "search_products"]);
   });
 
   test("агент целиком — только чтение (15 вопросов × 3 роли)", async () => {

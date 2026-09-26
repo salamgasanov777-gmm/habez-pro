@@ -7,7 +7,7 @@ import { readFileSync } from "node:fs";
 import { db, all } from "../../../db/index.js";
 import { runAgent } from "../runtime/agent.js";
 import { loadEvalCases, evaluateCase } from "./grounding-eval.js";
-import { loadEval32, runConversation, evaluateCase32, EVAL33_FILE } from "./eval-3-2.js";
+import { loadEval32, runConversation, evaluateCase32, evalFileForSet } from "./eval-3-2.js";
 import { createMockProvider } from "../provider/mock.js";
 
 db.exec("PRAGMA query_only = ON");
@@ -16,8 +16,8 @@ const slugOf = new Map(all("SELECT id, slug FROM products").map((r) => [r.id, r.
 let passed = 0;
 // Наборы 3.2 / 3.3: беседа прогоняется заново, прошлые реплики — заглушкой,
 // последняя — сохранённым ответом модели.
-if (["3.2", "3.3"].includes(report.summary.set)) {
-  const data = report.summary.set === "3.3" ? loadEval32(EVAL33_FILE) : loadEval32();
+if (["3.2", "3.3", "3.4"].includes(report.summary.set)) {
+  const data = loadEval32(evalFileForSet(report.summary.set));
   const byId = new Map([...data.cases, ...(data.live_extra || [])].map((c) => [String(c.id), c]));
   for (const saved of report.results) {
     const c = byId.get(String(saved.id));

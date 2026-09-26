@@ -494,6 +494,59 @@ describe("Phase 3.3: Product Intelligence через HTTP", () => {
   });
 });
 
+describe("Phase 3.4: Factory Intelligence через HTTP", () => {
+  test("товар → завод → товары завода: статусы в meta, «этот завод» из состояния беседы", async () => {
+    fake.mode = "cite";
+    const r = await chat(bearer(users.manager.token), { message: "Где производится ШОВ?" });
+    assert.equal(r.meta.mode, "PRODUCT_FACTORY");
+    assert.equal(r.meta.productFactory[0].status, "INFERRED");
+    assert.match(modelInput(), /СВЯЗЬ ТОВАРА С ЗАВОДОМ/);
+    assert.match(fake.last().body.system, /Заводы и документы/);
+    assert.equal(r.done.state.current_factory, "home");
+    assert.ok(r.done.citations.some((c) => c.kind === "document" && c.docId), "номер ведёт к документу");
+    const more = await chat(bearer(users.manager.token), { message: "Какие ещё товары выпускает этот завод?", state: r.done.state, refBase: r.done.refNext });
+    assert.equal(more.meta.mode, "FACTORY_PRODUCTS");
+    assert.ok(more.meta.factory.items.length > 30 && !more.meta.factory.items.some((x) => x.slug === "shov"));
+  });
+
+  test("гостю — без документов слоя знаний: ответ без модели, только факт «есть у сотрудников»", async () => {
+    const n = fake.requests.length;
+    const r = await chat(guest(91), { message: "Какие документы есть у ШОВ?" });
+    assert.equal(r.meta.mode, "FACTORY_DOCUMENTS");
+    assert.match(r.text, /доступны сотрудникам/);
+    assert.equal(fake.requests.length, n);
+    assert.ok(!JSON.stringify(r.events).includes("technologist-note"));
+  });
+
+  test("конфиденциальный изготовитель: администратор видит, сотрудник — только «нужна сверка»", async () => {
+    fake.mode = "cite";
+    const admin = await chat(bearer(users.admin.token), { message: "Где производится КОМПОЗИТ?" });
+    assert.ok(admin.meta.productFactory[0].relations.some((x) => x.factory.includes("Стороннее") && x.status === "CONFIRMED"));
+    const staff = await chat(bearer(users.manager.token), { message: "Где производится КОМПОЗИТ?" });
+    assert.equal(staff.meta.productFactory[0].needsReview, true);
+    assert.ok(!modelInput().includes("Стороннее") && !JSON.stringify(staff.events).includes("Стороннее"));
+  });
+
+  test("панель: производитель и заводские документы товара — менеджеру, покупателю — нет", async () => {
+    const shov = get("SELECT id FROM products WHERE slug='shov'").id;
+    const res = await fetch(`${base}/api/ai/products/${shov}/factory`, { headers: bearer(users.manager.token) });
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.status, "INFERRED");
+    assert.ok(body.documents.some((d) => d.type === "factory_technologist" && d.date === "2026-09-05"));
+    assert.ok(!JSON.stringify(body).includes("lab-protocol-77"), "конфиденциальное менеджеру не отдаётся");
+    assert.ok([401, 403].includes((await fetch(`${base}/api/ai/products/${shov}/factory`, { headers: bearer(users.customer.token) })).status));
+  });
+
+  test("чего нет в данных (мощность завода) — ответ без модели", async () => {
+    const n = fake.requests.length;
+    const r = await chat(bearer(users.manager.token), { message: "Какая мощность завода?" });
+    assert.equal(r.meta.mode, "FACTORY_LOOKUP");
+    assert.match(r.text, /нет сведений/);
+    assert.equal(fake.requests.length, n);
+  });
+});
+
 describe("база", () => {
   test("после всех ответов агента деловые данные не изменились, агент не пишет ничего", async () => {
     const changes = get("SELECT total_changes() AS n").n;

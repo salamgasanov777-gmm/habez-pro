@@ -8,7 +8,9 @@
 //   nextState(route, prev) → состояние для следующего вопроса
 //
 // intent: product_lookup | spec_lookup | comparison | application |
-// packaging | condition | source | conflict | unknown.
+// packaging | condition | source | conflict | unknown; Phase 3.3 —
+// suitability | usage | compatibility; Phase 3.4 — factory_lookup |
+// factory_products | factory_documents | product_factory | factory_profile.
 //
 // Состояние беседы — это не данные товаров, а «о чём сейчас речь»:
 //   current_product, current_products, current_variant, current_spec,
@@ -19,12 +21,14 @@ import { z } from "zod";
 import { resolveProducts } from "./resolver.js";
 import { resolveSpecs, parseConditions, VARIANT_SPEC_KEYS } from "./specs.js";
 import { resolveUseCase, useCaseById } from "../intel/usecases.js";
+import { factoryIntent } from "../factory/route.js";
 
 // Phase 3.3: suitability — «подходит ли X для задачи», usage — «как
 // применять», compatibility — «совместимы ли X и Y». application — подбор
 // товаров под задачу.
 export const INTENTS = ["product_lookup", "spec_lookup", "comparison", "application", "packaging", "condition", "source", "conflict",
-  "suitability", "usage", "compatibility", "unknown"];
+  "suitability", "usage", "compatibility", "factory_lookup", "factory_products", "factory_documents", "product_factory", "factory_profile", "unknown"];
+export const FACTORY_INTENTS = new Set(["factory_lookup", "factory_products", "factory_documents", "product_factory", "factory_profile"]);
 
 const slug = z.string().regex(/^[a-z0-9-]{1,80}$/);
 export const stateSchema = z.object({
@@ -39,6 +43,8 @@ export const stateSchema = z.object({
   awaiting: z.enum(["product", "variant", "products"]).nullable().optional(),
   // Phase 3.3: задача, о которой идёт речь («заделка швов ГКЛ»).
   current_use_case: z.string().regex(/^[a-z_]{1,40}$/).nullable().optional(),
+  // Phase 3.4: завод, о котором идёт речь («этот завод»).
+  current_factory: z.string().regex(/^[a-z0-9а-я-]{1,60}$/).nullable().optional(),
 }).strict();
 
 const norm = (s) => ` ${String(s || "").toLowerCase().replace(/ё/g, "е").replace(/\s+/g, " ").trim()} `;
@@ -119,6 +125,30 @@ export function routeQuestion(question, { catalog, state = {} }) {
 
   // Намерение.
   let intent;
+  // Phase 3.4: заводы и документы — раньше остальных правил: «этого завода»
+  // — не отсылка к товару, «гипсокартон» в вопросе о документах — группа
+  // товаров, а не повод переспрашивать.
+  const fi = factoryIntent(q, { products, productsFromQuestion: productsFrom === "question", state, useCase: useCaseFrom === "question" ? useCase : null, specKeys: specs.keys });
+  let factory = null;
+  let ambiguous = found.ambiguous;
+  if (fi) {
+    intent = fi.intent;
+    factory = { docTypes: fi.docTypes, group: fi.group?.label ?? null, more: fi.more, conflictPolicy: !!fi.conflictPolicy, levels: !!fi.levels, overview: !!fi.overview, asked: fi.asked ?? null, from: null };
+    if (["factory_products", "factory_profile", "factory_lookup"].includes(intent)) {
+      if (productsFrom !== "question") { products = []; productsFrom = null; reference = null; }
+      ambiguous = [];
+    } else {
+      // Группа товаров («гипсокартон») — все её товары.
+      if (!products.length && ambiguous.length) { products = ambiguous[0].candidates; productsFrom = "group"; ambiguous = []; }
+      // «Какие документы есть по этим товарам?» после товаров завода — о заводе.
+      if (!products.length && state.current_factory && (/(эт|тех|эти)[а-я]* товар|по ним|у них/.test(q) || ["factory_products", "factory_profile", "factory_lookup"].includes(state.last_intent))) factory.from = "state";
+      // «А документы?» — о текущем товаре.
+      else if (!products.length && prevProduct && !fi.overview && !fi.conflictPolicy && (elliptic || /(у|по|на|для|о) (него|нее|ней|ним|нем)/.test(q))) { products = [prevProduct]; productsFrom = "state"; reference = "single"; }
+    }
+    if (!factory.from && state.current_factory && /(этот|этого|этом|тот|того|том|данн[а-я]*) (завод|производител|площадк)|этот же|тот же/.test(q)) factory.from = "state";
+  }
+  let baseOnly = false;
+  if (!fi) {
   const specKeys = specs.keys.filter((k) => !VARIANT_SPEC_KEYS.has(k));
   const usageWords = /как (его |ее |их )?(правильно )?(применя|нанос|нанест|использова|развест|развод|приготов|готов|работать с)|инструкц|порядок (работ|нанесени|приготовлени)|технологи[яю] нанесени/.test(q);
   const suitWords = /подход|подойд|можно (ли )?(его |ее )?(использ|примен|нанос)|годит|пригод|использовать для|применять для/.test(q) || why;
@@ -127,7 +157,7 @@ export function routeQuestion(question, { catalog, state = {} }) {
   // Названный товар — основание задачи («для швов ГКЛ»), а не кандидат:
   // в сравнении и пригодности его нет.
   const isBase = (p) => useCase && !useCase.types.test(p.category || "") && /гкл|гипсокартон|гвл|пгп|пазогреб/i.test(`${p.name} ${p.short_name}`);
-  const baseOnly = useCase && products.length && products.every(isBase);
+  baseOnly = useCase && products.length && products.every(isBase);
   if (useCase && !baseOnly && products.some(isBase)) products = products.filter((p) => !isBase(p));
   if (products.length && purposeWords && !comparisonWords) intent = "product_lookup";
   else if (usageWords && (products.length || prevProduct)) intent = "usage";
@@ -148,11 +178,11 @@ export function routeQuestion(question, { catalog, state = {} }) {
   // «Чем отличаются ГКЛ 9,5 и 12,5 мм?» — сравнение фасовок одного товара.
   if (intent === "comparison" && products.length === 1 && (((q.match(/\d+(?:[.,]\d+)?/g) || []).length >= 2 && /\d\s*(мм|кг|л)(?![а-я])/.test(q)) || /фасовк|упаковк|толщин|вариант/.test(q))) intent = "packaging";
   if (intent === "comparison" && products.length < 2 && !needs.includes("products")) needs.push("products");
-  if (baseOnly && intent === "application") products = products; // основание: остаётся в маршруте, но не кандидат
+  }
 
   return {
     intent, products, productsFrom, reference,
-    ambiguousProducts: found.ambiguous, unknown: found.unknown,
+    ambiguousProducts: ambiguous, unknown: found.unknown, factory,
     useCase: useCase ? useCase.id : null, useCaseFrom, baseOnly: !!baseOnly,
     specs: { terms: specs.terms, keys: specs.keys, ambiguous: specs.ambiguous, from: specsFrom, groups: specsFrom === "question" ? specs.groups.map((g) => ({ label: g.label, keys: g.keys })) : [] },
     conditions: conds, needs,
@@ -160,7 +190,7 @@ export function routeQuestion(question, { catalog, state = {} }) {
 }
 
 // Новое состояние: только то, что следует из вопроса и ответа.
-export function nextState(route, prev = {}, { variant = null, awaiting = null, focus = null } = {}) {
+export function nextState(route, prev = {}, { variant = null, awaiting = null, focus = null, factoryId } = {}) {
   const slugs = route.products.map((p) => p.slug);
   let currentProducts = prev.current_products || [];
   if (route.intent === "comparison" && slugs.length >= 2) currentProducts = slugs;
@@ -180,5 +210,6 @@ export function nextState(route, prev = {}, { variant = null, awaiting = null, f
     last_intent: route.intent,
     awaiting,
     current_use_case: route.useCase ?? (["application", "suitability", "comparison"].includes(route.intent) ? prev.current_use_case ?? null : null),
+    current_factory: factoryId !== undefined ? factoryId : prev.current_factory ?? null,
   });
 }

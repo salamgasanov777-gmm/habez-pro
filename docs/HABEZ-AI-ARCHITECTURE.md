@@ -865,6 +865,7 @@ diff с текущими `ai_facts` → Fact Checker → запись факто
 | GET | `/api/ai/products` — товары со счётчиками характеристик |
 | GET | `/api/ai/products/summary` |
 | GET | `/api/ai/products/:id/intelligence` — карточка глазами машины |
+| GET | `/api/ai/products/:id/factory` — производитель / завод и заводские документы (Phase 3.4, только чтение, права роли) |
 | GET | `/api/ai/products/compare?ids=` — сравнение по числам |
 | GET | `/api/ai/specs` — фильтры: товар, раздел, ключ, статус, происхождение, единица, только числовые, поиск |
 | GET/POST/PATCH | `/api/ai/specs`, `/api/ai/specs/:id` |

@@ -43,6 +43,7 @@ export function buildContext({ scope, products, specs, searchHits, unknown = [],
 // grounded — нет ошибок, кроме echoed и fromHistory.
 const NUM_UNIT = /(\d+(?:[.,]\d+)?)\s*(?:–|-|—|…|\.\.\.)?\s*(\d+(?:[.,]\d+)?)?\s*(мпа|мм|см|кг\/м³|кг\/м3|кг\/м²|кг\/м2|г\/м²|г\/м2|мл\/м²|мл\/м2|л\/кг|кг|г|мл|л(?:итр(?:а|ов)?)?|мин(?:ут[аы]?)?|ч(?:ас(?:а|ов)?)?|сут(?:ок|ки)?|месяц(?:а|ев)?|мес|м²|м2|м|%|шт|циклов|°c|°)(?![а-яa-z])/giu;
 const NUM = /\d+(?:[.,]\d+)?/g;
+const COMMON_WORDS = new Set(["стандарт"]);
 const DENIAL = /(^|[^а-яё])(нет|не)([^а-яё]|$)|отсутству|не подтвержд/i;
 const canon = (s) => String(s).replace(",", ".").replace(/\.0+$/, "");
 const FAMILY = [
@@ -135,8 +136,11 @@ export function checkAnswer(answer, evidence, { question = "", forbidden = [], c
   }
 
   // Товары в ответе: только те, что есть в данных этого ответа.
+  // Имя товара, которое само — обычное слово («стандарт» про ГОСТ), товаром
+  // в ответе считается, только если написано с заглавной (как имя).
+  const asName = (p) => !COMMON_WORDS.has(String(p.short_name || "").toLowerCase()) || new RegExp(`(?:^|[^а-яё])${String(p.short_name).charAt(0).toUpperCase()}${String(p.short_name).slice(1).toLowerCase()}|${String(p.short_name).toUpperCase()}`).test(text);
   const foreign = catalog && allowedProductIds
-    ? detectProducts(text, catalog).filter((p) => !allowedProductIds.has(p.id)).map((p) => p.short_name || p.name)
+    ? detectProducts(text, catalog).filter((p) => !allowedProductIds.has(p.id) && asName(p)).map((p) => p.short_name || p.name)
     : [];
 
   const out = {
@@ -160,6 +164,13 @@ export function publicCitation(e, scope) {
     status: e.status ?? null, conflictId: e.conflict_id ?? null };
   if (e.kind === "variant") return { ...base, kind: "variant", source: sourceLabel("variant"), variant: e.variant ?? null, perPallet: e.perPallet ?? null };
   if (e.kind === "catalog_card") return { ...base, kind: "catalog_card", source: sourceLabel("catalog_card"), condition: e.condition ?? null };
+  // Phase 3.4: реквизиты и каталог завода видны всем ролям.
+  if (e.kind === "factory_record") return { ...base, kind: "factory_record", product: e.label, label: null, source: sourceLabel(e.sourceType) };
+  if (e.kind === "catalog") return { ...base, kind: "catalog", source: sourceLabel("catalog") };
+  if (e.kind === "document") {
+    if (scope === "public") return { ...base, kind: "catalog_card", source: sourceLabel("catalog_card") };
+    return { ...base, kind: "document", docId: e.docId, source: e.label, sourceType: e.sourceType, reference: e.sourceReference, sourceDate: e.source_date ?? null, access: e.access };
+  }
   // Наблюдение видно только сотрудникам: сюда оно и не попадает иначе.
   if (scope === "public") return { ...base, kind: "catalog_card", source: sourceLabel("catalog_card") };
   return {

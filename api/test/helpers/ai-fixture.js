@@ -58,5 +58,46 @@ export async function prepareAiDb({ demo = false } = {}) {
   // гостю и сотруднику не должен из-за него менять оценку (Phase 3.3).
   ev.createObservation(1, { productId: ids.shov, specKey: "suitable_facade", originalValue: "ДА", sourceType: "measurement",
     sourceReference: "lab-shov-facade", accessLevel: "confidential" }, null);
+
+  // Phase 3.4 — заводы и документы. Как в рабочей базе: один пакет
+  // паспортов качества на несколько товаров (коммит №1 3bbbfb3, даты
+  // документа нет), сайт и прайс завода для ГКЛ.
+  for (const s of ["paint-interior", "paint-facade", "polymer-waterproofing", "melissa", "teplokom", "nal", "kompozit"]) ids[s] = get("SELECT id FROM products WHERE slug=?", s)?.id;
+  const legacy = (upstreamRef, upstreamRecordedAt) => ({ internal: { upstreamRef, upstreamRecordedAt, captureChannel: "habez_pro_product_card" } });
+  ev.createObservation(1, { productId: ids["paint-interior"], specKey: "adhesion_strength", originalValue: "0,2 МПа", sourceType: "quality_passport",
+    sourceReference: "app1-commit-3bbbfb3", accessLevel: "internal" }, null, legacy("app1-commit-3bbbfb3", "2026-09-10"));
+  ev.createObservation(1, { productId: ids["paint-facade"], specKey: "adhesion_strength", originalValue: "не менее 0,1 МПа", sourceType: "quality_passport",
+    sourceReference: "app1-commit-3bbbfb3", accessLevel: "internal" }, null, legacy("app1-commit-3bbbfb3", "2026-09-10"));
+  ev.createObservation(1, { productId: ids["polymer-waterproofing"], specKey: "consumption", originalValue: "0,8 кг/м²", sourceType: "quality_passport",
+    sourceReference: "app1-commit-3bbbfb3", accessLevel: "internal" }, null, legacy("app1-commit-3bbbfb3", "2026-09-10"));
+  ev.createObservation(1, { productId: ids.gkl, specKey: "sheet_size", originalValue: "1200 × 2500 мм", sourceType: "price_list",
+    sourceReference: "app1-commit-a57506d", accessLevel: "internal" }, null, legacy("app1-commit-a57506d", "2026-09-07"));
+  ev.createObservation(1, { productId: ids.gkl, specKey: "thickness", originalValue: "9,5 мм / 12,5 мм", sourceType: "factory_site",
+    sourceReference: "app1-commit-4f4c18e", accessLevel: "internal" }, null, legacy("app1-commit-4f4c18e", "2026-09-11"));
+  // Прямые записи об изготовителе — только в тестовой базе (в рабочей их нет):
+  //   МЕЛИССА  — этикетка называет свой завод → CONFIRMED;
+  //   ТЕПЛОКОМ — этикетка и ТУ называют разных изготовителей → CONFLICTED;
+  //   НАЛЬ     — две площадки → оба CONFIRMED, не противоречие;
+  //   КОМПОЗИТ — конфиденциальный сторонний изготовитель: гость и сотрудник
+  //              видят только «нужна сверка».
+  ev.createObservation(1, { productId: ids.melissa, specKey: "manufacturer", originalValue: "ООО «Хабезский гипсовый завод»", sourceType: "label",
+    sourceReference: "label-melissa-2026-09", sourceName: "Этикетка МЕЛИССА от 12.09.2026", providedAt: "2026-09-12", providedBy: "factory_technologist", accessLevel: "internal" }, null);
+  ev.createObservation(1, { productId: ids.teplokom, specKey: "manufacturer", originalValue: "Хабезский гипсовый завод", sourceType: "label",
+    sourceReference: "label-teplokom-2026-09", sourceName: "Этикетка ТЕПЛОКОМ от 01.09.2026", providedAt: "2026-09-01", accessLevel: "internal" }, null);
+  ev.createObservation(1, { productId: ids.teplokom, specKey: "manufacturer", originalValue: "ООО «Черкесский завод смесей»", sourceType: "technical_document",
+    sourceReference: "tu-teplokom-2019", sourceName: "ТУ на ТЕПЛОКОМ, редакция 2", providedAt: "2019-03-15", accessLevel: "internal" }, null);
+  ev.createObservation(1, { productId: ids.nal, specKey: "production_site", originalValue: "Хабезский гипсовый завод", sourceType: "label",
+    sourceReference: "label-nal-a", accessLevel: "internal" }, null);
+  ev.createObservation(1, { productId: ids.nal, specKey: "production_site", originalValue: "Черкесский завод смесей", sourceType: "label",
+    sourceReference: "label-nal-b", accessLevel: "internal" }, null);
+  ev.createObservation(1, { productId: ids.kompozit, specKey: "manufacturer", originalValue: "ООО «Стороннее производство»", sourceType: "measurement",
+    sourceReference: "contract-kompozit", accessLevel: "confidential" }, null);
+  // Два паспорта качества Бетоноконтакта с разными датами — победителя по
+  // дате нет.
+  ids.betonokontakt = get("SELECT id FROM products WHERE slug='betonokontakt'")?.id;
+  ev.createObservation(1, { productId: ids.betonokontakt, specKey: "shelf_life", originalValue: "6 месяцев", sourceType: "quality_passport",
+    sourceReference: "passport-betonokontakt-0801", sourceName: "Паспорт качества Бетоноконтакт от 01.08.2026", providedAt: "2026-08-01", accessLevel: "internal" }, null);
+  ev.createObservation(1, { productId: ids.betonokontakt, specKey: "shelf_life", originalValue: "12 месяцев", sourceType: "quality_passport",
+    sourceReference: "passport-betonokontakt-0915", sourceName: "Паспорт качества Бетоноконтакт от 15.09.2026", providedAt: "2026-09-15", accessLevel: "internal" }, null);
   return ids;
 }
