@@ -38,6 +38,11 @@ import { applicationSections } from "../intel/profile.js";
 import { FACTORY_INTENTS } from "../retrieval/router.js";
 import { runFactory, renderProductFactory } from "../factory/run.js";
 import { factoryMismatch, inventedDocuments, unsupportedDates } from "../factory/check.js";
+import { COMPETITOR_INTENTS } from "../competitor/route.js";
+import { runCompetitor } from "../competitor/run.js";
+import { dctx } from "../competitor/tools.js";
+import { competitorRegistry } from "../../competitors/index.js";
+import { verdict, analogyHallucination, priceHallucination, sourceHallucination, entityHallucination, missingAsWorse } from "../competitor/check.js";
 
 // Вопрос только о таких характеристиках — вопрос о применении (Phase 3.3).
 const APPLICATION_KEYS = new Set(["water_per_bag", "water_ratio", "water_mix_ratio", "layer_thickness", "layer_thickness_wall", "layer_thickness_floor",
@@ -53,7 +58,7 @@ export function cleanHistory(history = [], maxChars = config.ai.agent.historyMax
   const out = [];
   for (const m of history.slice(-MAX_HISTORY)) {
     if (!["user", "assistant"].includes(m?.role) || typeof m.content !== "string" || !m.content.trim()) continue;
-    const content = m.content.replace(/\[E\d+\]/g, "").slice(0, 4000);
+    const content = m.content.replace(/[ \t]*\[E\d+\]/g, "").slice(0, 4000);
     if (out.length && out[out.length - 1].role === m.role) out[out.length - 1].content += `\n${content}`;
     else out.push({ role: m.role, content });
   }
@@ -87,7 +92,11 @@ export async function runAgent({ tenantId, scope, question, history = [], state 
 
   const catalog = all(`SELECT p.id, p.slug, p.name, p.short_name, p.summary, p.sections, p.spec_tables, c.name AS category
     FROM products p LEFT JOIN categories c ON c.id=p.category_id WHERE p.tenant_id=?${scope === "public" ? " AND p.status='published'" : ""}`, tenantId);
-  const route = routeQuestion(q, { catalog, state });
+  // 3.5: справочник имён конкурентов — только сотрудникам (гость о
+  // конкурентах не узнаёт даже по названию).
+  let competitors = [];
+  if (scope !== "public") { try { competitors = competitorRegistry(dctx(ctx)); } catch { competitors = []; } }
+  const route = routeQuestion(q, { catalog, state, competitors, scope });
   const bundle = createBundle({ scope, refBase, maxEvidence: budget.maxEvidence });
   const allowed = new Set();
   const groups = specGroups(route);
@@ -99,11 +108,25 @@ export async function runAgent({ tenantId, scope, question, history = [], state 
   const products = [];
   let found = [];
 
+  // 3.5: вопрос о конкурентах — свой путь (раньше заводов 3.4 и подбора 3.3).
+  let comp = null;
+  if (COMPETITOR_INTENTS.has(route.intent)) {
+    const tc = Date.now();
+    if (route.unknown.length && !route.competitor.hits.length && scope !== "public") {
+      mode = "NOT_FOUND";
+      fixed = `${names(route.unknown)} нет ни в каталоге Habez, ни в справочнике конкурентов. Сведения о конкурентах вносит администратор; я не угадываю и не ищу в интернете.`;
+    } else {
+      comp = runCompetitor({ route, q, ctx, bundle, calls, allowed, state });
+      if (comp) { mode = comp.mode; if (comp.fixed) fixed = comp.fixed; if (comp.clarification) clarification = comp.clarification; }
+    }
+    if (comp) comp.ms = Date.now() - tc;
+  }
   // 1. Без модели: товара нет или неясно, о каком речь.
-  if (!route.products.length) {
+  if (!mode && !route.products.length) {
     if (route.unknown.length) {
       mode = "NOT_FOUND";
-      fixed = `Товара ${names(route.unknown)} в каталоге Habez нет, поэтому данных о нём тоже нет. Проверьте название или спросите о задаче — подскажу, что из ассортимента Habez подходит.`;
+      fixed = `Товара ${names(route.unknown)} в каталоге Habez нет, поэтому данных о нём тоже нет. Проверьте название или спросите о задаче — подскажу, что из ассортимента Habez подходит.`
+        + (competitors.length ? " В справочнике конкурентов такого названия тоже нет." : "");
     } else if (route.ambiguousProducts.length && route.intent !== "application") {
       const opts = route.ambiguousProducts[0].candidates.map((p) => p.short_name || p.name);
       mode = "CLARIFICATION"; awaiting = "product";
@@ -299,7 +322,7 @@ export async function runAgent({ tenantId, scope, question, history = [], state 
   const tRetrieval = Date.now();
   const conflicts = ctxResult.properties.filter((p) => p.status === "conflict" || p.status === "unresolved");
   const factoryId = factory?.factoryId ?? (profileFactory ? profileFactory.mainFactoryId : undefined);
-  const next = nextState(route, state, { variant: chosenVariant, awaiting, focus: intel?.focus || null, factoryId: factoryId === null ? undefined : factoryId });
+  const next = nextState(route, state, { variant: chosenVariant, awaiting, focus: intel?.focus || null, factoryId: factoryId === null ? undefined : factoryId, competitor: comp?.focus || null });
   const safeRoute = {
     intent: route.intent, products: route.products.map((p) => p.short_name || p.name), productSlugs: route.products.map((p) => p.slug), productsFrom: route.productsFrom,
     specs: route.specs.terms, specKeys: route.specs.keys, ambiguousSpec: route.specs.ambiguous, conditions: route.conditions,
@@ -317,6 +340,7 @@ export async function runAgent({ tenantId, scope, question, history = [], state 
     useCase: useCase ? { id: useCase.id, label: useCase.label } : null,
     suitability, profile: intel?.profile || null, application: intel?.application || null, compatibility: intel?.compatibility || null,
     factory: factory?.factory || null, productFactory: factory?.productFactory || (profileFactory ? [profileFactory] : null), documents: factory?.documents || null,
+    competitor: comp?.competitor || null,
     clarification,
     evidenceCount: ctxResult.evidence.length, refBase,
   });
@@ -344,7 +368,7 @@ export async function runAgent({ tenantId, scope, question, history = [], state 
     const timeout = AbortSignal.timeout(budget.totalTimeoutMs);
     const sig = signal ? AbortSignal.any([signal, timeout]) : timeout;
     const hints = { properties: ctxResult.properties, found: ctxResult.found, variants: ctxResult.variants, unknown: route.unknown, comparison: ctxResult.comparison, mode,
-      lines: factoryDigest(factory, profileFactory) };
+      lines: [...factoryDigest(factory, profileFactory), ...(comp ? competitorDigest(ctxResult.evidence) : [])] };
     for (let turn = 1; turn <= budget.maxTurns; turn += 1) {
       turns = turn;
       // Последний ход — без вызовов: модель отвечает по тому, что есть.
@@ -399,7 +423,9 @@ export async function runAgent({ tenantId, scope, question, history = [], state 
   const check = fixed
     ? { citations: [], invalidCitations: [], unsupported: [], mismatched: [], uncited: [], echoed: [], forbidden: [], foreignProducts: [], grounded: true }
     : checkAnswer(answer, final.evidence, { question: q, forbidden, catalog, allowedProductIds: allowedIds,
-      contextText: final.text, historyText: history.filter((m) => m?.role === "assistant").map((m) => m.content).join("\n") });
+      contextText: final.text, historyText: history.filter((m) => m?.role === "assistant").map((m) => m.content).join("\n"),
+      // «П-Финиш» — товар конкурента, а не наш «ФИНИШ».
+      maskNames: competitors.flatMap((c) => c.names || []) });
   const t1 = Date.now();
   const timings = {
     retrievalMs: tRetrieval - t0, contextMs: tContext - tRetrieval,
@@ -425,6 +451,28 @@ export async function runAgent({ tenantId, scope, question, history = [], state 
   grounding.inventedDocuments = fixed || !(factory || profileFactory) ? [] : inventedDocuments(answer, docTypesAvailable);
   grounding.unsupportedDates = fixed ? [] : unsupportedDates(answer, final.text, q);
   if (grounding.factoryMismatch.length || grounding.inventedDocuments.length || grounding.unsupportedDates.length) grounding.grounded = false;
+  // 3.5: ответ о конкурентах — выдуманные компании, цены, источники, «полный
+  // аналог» вопреки статусу, вердикты, «нет данных» как «хуже».
+  if (comp && !fixed) {
+    const cmpRows = final.comparison?.rows || [];
+    const lowName = (n) => String(n).toLowerCase().replace(/ё/g, "е");
+    const pairs = [];
+    const oursOf = (x) => [x].filter(Boolean).map(lowName);
+    for (const a of comp.competitor?.analogs || []) pairs.push({ names: [a.competitorProduct].filter(Boolean).map(lowName), ours: oursOf(a.product || comp.competitor.product), status: a.status, relation: a.relation });
+    if (comp.competitor?.analog) pairs.push({ names: [comp.competitor.competitorProduct].filter(Boolean).map(lowName), ours: oursOf(comp.competitor.product), ...comp.competitor.analog });
+    for (const pr of pairs) for (const key of ["names", "ours"]) for (const n of [...pr[key]]) { const qn = n.match(/«([^»]+)»/); if (qn) pr[key].push(qn[1]); }
+    const prices = priceHallucination(answer, final.evidence.filter((e) => e.kind === "price"));
+    grounding.competitor = {
+      verdict: verdict(answer, q),
+      analogy: analogyHallucination(answer, pairs),
+      inventedPrices: prices.invented, uncitedPrices: prices.uncited,
+      inventedSources: sourceHallucination(answer, `${final.text} ${final.evidence.map((e) => `${e.sourceName ?? ""} ${e.value ?? ""}`).join(" ")}`),
+      inventedEntities: entityHallucination(answer, { registry: competitors, dataText: final.text, corpus: catalog.map((p) => `${p.name} ${p.short_name || ""}`).join(" "),
+        question: q, historyText: history.filter((m) => m?.role === "assistant").map((m) => m.content).join("\n") }),
+      missingAsWorse: missingAsWorse(answer, cmpRows.filter((r) => r.cells.some((c) => c.missing)).map((r) => r.label)),
+    };
+    if (Object.values(grounding.competitor).some((v) => v.length)) grounding.grounded = false;
+  }
   const metrics = {
     tool_calls: calls.length, tool_calls_plan: calls.filter((c) => c.source === "plan").length, tool_calls_model: calls.filter((c) => c.source === "model").length,
     turns, evidence: final.evidence.length, context_chars: bundle.size().chars,
@@ -432,6 +480,7 @@ export async function runAgent({ tenantId, scope, question, history = [], state 
     intel_ms: intelMs,
     // Factory Intelligence: поиск завода, документы, сборка связей в пакет.
     factory_ms: factory?.timings?.factoryMs ?? 0, documents_ms: factory?.timings?.documentsMs ?? 0, graph_ms: factory?.timings?.graphMs ?? 0,
+    competitor_ms: comp?.ms ?? 0,
     retrieval_ms: timings.retrievalMs, context_ms: timings.contextMs, model_ms: timings.llmMs, total_ms: timings.totalMs,
     input_tokens: usage.input_tokens, output_tokens: usage.output_tokens,
   };
@@ -446,6 +495,7 @@ export async function runAgent({ tenantId, scope, question, history = [], state 
     profile: intel?.profile || null, application: intel?.application || null, compatibility: intel?.compatibility || null,
     factory: factory?.factory || null, productFactory: factory?.productFactory || (profileFactory ? [profileFactory] : null), documents: factory?.documents || null,
     factoryId: factory?.factoryId ?? null,
+    competitor: comp?.competitor || null,
     citations: cited.map((e) => publicCitation(e, scope)),
     grounding,
     withheld: check.forbidden.length > 0,
@@ -479,4 +529,10 @@ function factoryDigest(factory, profileFactory) {
   for (const x of [...(factory?.productFactory || []), ...(profileFactory ? [profileFactory] : [])]) out.push(`${x.short}: ${x.relations.map((r) => `${r.factory} — ${r.label}`).join("; ")}${b(x.refs)}`);
   for (const d of factory?.documents || []) out.push(`Документ: ${d.typeLabel} «${d.title}»${d.date ? `, дата ${d.date}` : ", дата не указана"}${b(d.refs.slice(0, 4))}`);
   return out;
+}
+
+// 3.5: сводка для заглушки модели — записи справочника, цены и связи.
+function competitorDigest(evidence) {
+  return evidence.filter((e) => ["competitor_record", "price", "analog"].includes(e.kind))
+    .map((e) => `${e.kind === "price" ? `${e.productName}, ${e.label}` : e.label}: ${e.value}${e.kind === "price" ? ` на ${e.source_date}` : ""} [${e.id}]`);
 }

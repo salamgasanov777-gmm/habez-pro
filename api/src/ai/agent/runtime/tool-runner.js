@@ -15,6 +15,10 @@ import { selectProperties, fetchProduct } from "./plan.js";
 import { runFactory } from "../factory/run.js";
 import { groupFromQuestion } from "../factory/model.js";
 import { docTypesFromQuestion } from "../factory/route.js";
+import { runCompetitor } from "../competitor/run.js";
+import { detectCompetitors } from "../competitor/detect.js";
+import { dctx } from "../competitor/tools.js";
+import { competitorRegistry } from "../../competitors/index.js";
 
 export function createToolRunner({ ctx, catalog, bundle, budget, calls, allowed }) {
   const seen = new Set();
@@ -94,6 +98,28 @@ export function createToolRunner({ ctx, catalog, bundle, budget, calls, allowed 
           const out = runFactory({ route, q: String(input.factory || ""), ctx, bundle, calls: [], allowed });
           calls.push({ name, source: "model", ms: Date.now() - t0, found: out.mode === "NOT_FOUND" ? 0 : 1 });
           if (out.fixed) return out.fixed;
+        }
+      } else if (["search_competitors", "get_competitor", "get_competitor_products", "find_analogs", "compare_with_competitor"].includes(name)) {
+        // 3.5: тот же путь, что у плана (competitor/run.js); гостю — отказ.
+        if (ctx.scope === "public") return "Сведения о конкурентах доступны сотрудникам.";
+        const text = [input.query, input.company, input.brand, input.competitor_product].filter(Boolean).join(" ");
+        const hits = detectCompetitors(text, competitorRegistry(dctx(ctx)));
+        if (name === "search_competitors") {
+          calls.push({ name, source: "model", ms: Date.now() - t0, found: hits.length });
+          if (!hits.length) return "В справочнике конкурентов Habez такого нет.";
+          for (const h of hits) bundle.competitorRecord({ label: { company: "Компания", brand: "Марка", product: "Товар конкурента" }[h.item.type], value: h.item.name, where: h.item.companyName && h.item.type !== "company" ? h.item.companyName : null });
+        } else {
+          const ours = input.product ? product(input.product) : null;
+          if (input.product && !ours) return `Товар «${input.product}» по этому названию однозначно не найден в каталоге Habez.`;
+          if (["find_analogs", "compare_with_competitor"].includes(name) && !ours) return "Нужен товар Habez.";
+          if (name !== "find_analogs" && !hits.length) return "В справочнике конкурентов Habez такого нет.";
+          const intent = { get_competitor: "competitor_lookup", get_competitor_products: "competitor_products", find_analogs: "analog_lookup", compare_with_competitor: "competitor_comparison" }[name];
+          const kinds = (t) => hits.filter((h) => h.item.type === t).map((h) => h.item.id);
+          const route = { intent, products: ours ? [ours] : [], specs: { keys: [] }, factory: null,
+            competitor: { companies: kinds("company"), brands: kinds("brand"), products: kinds("product"), from: "question", otherBrand: false, list: false, forbidden: false, hits: [] } };
+          const out = runCompetitor({ route, q: text, ctx, bundle, calls: [], allowed, state: {} });
+          calls.push({ name, source: "model", ms: Date.now() - t0, found: out?.fixed ? 0 : 1 });
+          if (out?.fixed) return out.fixed;
         }
       } else if (name === "get_product_evidence") {
         const p = product(input.product);

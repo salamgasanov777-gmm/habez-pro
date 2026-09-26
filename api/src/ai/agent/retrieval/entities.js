@@ -101,6 +101,8 @@ export function unknownNames(question, corpus) {
     for (const m of q.matchAll(/(?:^|[^A-Za-zА-Яа-яЁё0-9-])([A-ZА-ЯЁ][A-ZА-ЯЁ0-9]{3,}(?:[-‑][A-ZА-ЯЁa-zа-яё0-9]+)*)(?=$|[^A-Za-zА-Яа-яЁё0-9-])/g)) found.add(m[1]);
   }
   for (const m of q.matchAll(/(?:^|[^A-Za-zА-Яа-яЁё0-9-])([A-Za-zА-Яа-яЁё]{3,}[-‑][0-9]{2,}[A-Za-zА-Яа-яЁё0-9]*)(?=$|[^A-Za-zА-Яа-яЁё0-9-])/g)) found.add(m[1]);
+  // Имя вида «Т-Супер», «U-Шов»: одна–три заглавные, дефис, слово с заглавной.
+  for (const m of q.matchAll(/(?:^|[^A-Za-zА-Яа-яЁё0-9-])([A-ZА-ЯЁ]{1,3}[-‑][A-ZА-ЯЁ][a-zа-яё]{2,})(?=$|[^A-Za-zА-Яа-яЁё0-9-])/g)) found.add(m[1]);
   const hay = norm(corpus).replace(/‑/g, "-");
   return [...found].filter((name) => !TECH_WORDS.has(norm(name))).filter((name) => {
     const n = norm(name).replace(/‑/g, "-");

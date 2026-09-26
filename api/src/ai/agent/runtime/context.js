@@ -66,9 +66,12 @@ function facts(text) {
   return { pairs, bare, all };
 }
 const supports = (f, n, fam) => f.pairs.has(`${n}|${fam}`) || f.bare.has(n);
-const evidenceText = (e) => `${e.value ?? ""} ${e.label ?? ""} ${e.perPallet ? `${e.perPallet} шт` : ""} ${e.variant ?? ""} ${e.productName ?? ""} ${e.condition ?? ""} ${e.property ?? ""} ${e.line ?? ""}`;
+// where — часть записи [E#] (фасовки товара конкурента, различия аналога);
+// basis — основа цены («за мешок 25 кг»).
+const evidenceText = (e) => `${e.value ?? ""} ${e.label ?? ""} ${e.perPallet ? `${e.perPallet} шт` : ""} ${e.variant ?? ""} ${e.productName ?? ""} ${e.condition ?? ""} ${e.property ?? ""} ${e.line ?? ""} ${e.where ?? ""} ${e.basis ?? ""}`;
+const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
-export function checkAnswer(answer, evidence, { question = "", forbidden = [], catalog = null, allowedProductIds = null, contextText = "", historyText = "" } = {}) {
+export function checkAnswer(answer, evidence, { question = "", forbidden = [], catalog = null, allowedProductIds = null, contextText = "", historyText = "", maskNames = [] } = {}) {
   const text = String(answer || "");
   const byId = new Map(evidence.map((e) => [e.id, e]));
   const cited = [...new Set([...text.matchAll(/\[(E\d+)\]/g)].map((m) => m[1]))];
@@ -139,8 +142,13 @@ export function checkAnswer(answer, evidence, { question = "", forbidden = [], c
   // Имя товара, которое само — обычное слово («стандарт» про ГОСТ), товаром
   // в ответе считается, только если написано с заглавной (как имя).
   const asName = (p) => !COMMON_WORDS.has(String(p.short_name || "").toLowerCase()) || new RegExp(`(?:^|[^а-яё])${String(p.short_name).charAt(0).toUpperCase()}${String(p.short_name).slice(1).toLowerCase()}|${String(p.short_name).toUpperCase()}`).test(text);
+  // Имена товаров конкурентов («П-Финиш») не считаются упоминанием нашего
+  // товара («ФИНИШ»): их вырезаем перед поиском.
+  const masked = [...new Set(maskNames.flatMap((n) => [n, ...[...String(n).matchAll(/[«"“]([^»"”]+)[»"”]/g)].map((m) => m[1])]).map((n) => String(n).trim()).filter((n) => n.length >= 3))]
+    .sort((a, b) => b.length - a.length)
+    .reduce((t, n) => t.replace(new RegExp(`(^|[^A-Za-zА-Яа-яЁё0-9-])${escapeRe(n)}[а-яё]{0,3}(?=$|[^A-Za-zА-Яа-яЁё0-9-])`, "giu"), "$1 "), text);
   const foreign = catalog && allowedProductIds
-    ? detectProducts(text, catalog).filter((p) => !allowedProductIds.has(p.id) && asName(p)).map((p) => p.short_name || p.name)
+    ? detectProducts(masked, catalog).filter((p) => !allowedProductIds.has(p.id) && asName(p)).map((p) => p.short_name || p.name)
     : [];
 
   const out = {
@@ -167,6 +175,12 @@ export function publicCitation(e, scope) {
   // Phase 3.4: реквизиты и каталог завода видны всем ролям.
   if (e.kind === "factory_record") return { ...base, kind: "factory_record", product: e.label, label: null, source: sourceLabel(e.sourceType) };
   if (e.kind === "catalog") return { ...base, kind: "catalog", source: sourceLabel("catalog") };
+  // 3.5: сведения о конкурентах — только сотрудникам (гостю их не выдаёт
+  // сам слой); здесь — безопасные поля ссылки.
+  if (e.kind === "competitor_record") return { ...base, kind: "competitor_record", source: sourceLabel("competitor_registry") };
+  if (e.kind === "price") return scope === "public" ? { id: e.id } : { ...base, kind: "price", source: e.sourceName || sourceLabel("price"), sourceDate: e.source_date ?? null,
+    region: e.region ?? null, seller: e.seller ?? null, reference: e.sourceReference ?? null, access: e.access };
+  if (e.kind === "analog") return scope === "public" ? { id: e.id } : { ...base, kind: "analog", source: e.sourceName || sourceLabel("analog"), status: e.status ?? null };
   if (e.kind === "document") {
     if (scope === "public") return { ...base, kind: "catalog_card", source: sourceLabel("catalog_card") };
     return { ...base, kind: "document", docId: e.docId, source: e.label, sourceType: e.sourceType, reference: e.sourceReference, sourceDate: e.source_date ?? null, access: e.access };

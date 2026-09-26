@@ -36,6 +36,10 @@ const SOURCE_LABEL = {
   mentioned: "назван в данных о товаре",
   catalog: "каталог Habez Pro",
   document: "документ",
+  // 3.5
+  competitor_registry: "справочник конкурентов Habez",
+  price: "наблюдение цены",
+  analog: "утверждение об аналоге",
 };
 export const sourceLabel = (t) => SOURCE_LABEL[t] || t;
 
@@ -261,6 +265,42 @@ export function createBundle({ scope, refBase = 0, maxEvidence = 160 }) {
       }
       if (d.observations.length > maxObs) lines.push(`  …ещё ${d.observations.length - maxObs} значений в этом документе`);
       return { ref: id, obs };
+    },
+
+    // 3.5: запись справочника конкурентов (компания, марка, товар).
+    competitorRecord({ label, value, product = null, productName = null, where = null }) {
+      const id = add(norm({ kind: "competitor_record", label, value, product, productName, where, sourceType: "competitor_registry" }));
+      if (id) lines.push(`[${id}] ${label}: ${value}${where ? ` — ${where}` : ""}`);
+      return id;
+    },
+
+    // 3.5: цены товара конкурента группами сравнимых цен. У каждой цены —
+    // дата, источник, основа; основы между собой не пересчитываются.
+    prices(groups, productName) {
+      const refs = [];
+      const money = (m, cur) => `${(m / 100).toFixed(2).replace(".", ",")} ${cur === "RUB" ? "₽" : cur}`;
+      const KIND = { retail: "розница", wholesale: "опт", dealer: "дилерская", rrp: "РРЦ", promo: "акция", marketplace: "маркетплейс" };
+      const VATL = { with_vat: "с НДС", without_vat: "без НДС", unknown: "НДС не указан" };
+      lines.push(`\nЦЕНЫ — ${productName} (группа = один вид цены, одна основа, НДС, фасовка, регион; разные группы НЕ сравнивать и не пересчитывать; действующая цена не выбирается; разные суммы на разные даты — история цен, а не противоречие):`);
+      for (const g of groups) {
+        lines.push(`- ${KIND[g.priceKind] || g.priceKind}, ${g.basis}${g.pack ? `, фасовка ${g.pack}` : ""}, ${VATL[g.vat] || g.vat}${g.region ? `, ${g.region}` : ""}${g.status === "CONFLICTED" ? " — ПРОТИВОРЕЧИЕ: на одну дату разные суммы, назвать все" : ""}:`);
+        for (const o of g.observations) {
+          const id = add(norm({ kind: "price", productName, label: `цена (${KIND[o.priceKind] || o.priceKind}, ${o.basis})`, value: money(o.amountMinor, o.currency), amountMinor: o.amountMinor,
+            currency: o.currency, priceKind: o.priceKind, basis: o.basis, basisQty: o.basisQty, basisUnit: o.basisUnit, sourceDate: o.observedAt, region: o.region, seller: o.seller,
+            sourceName: o.source?.name ?? null, sourceType: "price", sourceReference: o.sourceReference, access: o.access }));
+          if (!id) break;
+          refs.push(id);
+          lines.push(`  [${id}] ${money(o.amountMinor, o.currency)} ${o.basis} — на дату ${o.observedAt}; источник «${o.source?.name ?? "—"}»${o.sourceReference ? ` (${o.sourceReference})` : ""}${o.seller ? `; продавец ${o.seller}` : ""}${o.region ? `; регион ${o.region}` : ""}; доступ: ${o.access}`);
+        }
+      }
+      return refs;
+    },
+
+    // 3.5: утверждение об аналоге (основание) или предположение.
+    analog({ label, value, status, productName, sourceName = null, where = null }) {
+      const id = add(norm({ kind: "analog", label, value, productName, status, sourceName, where, sourceType: "analog" }));
+      if (id) lines.push(`[${id}] ${label}: ${value}${where ? ` — ${where}` : ""}`);
+      return id;
     },
 
     // Ответ общего поиска (search_knowledge).

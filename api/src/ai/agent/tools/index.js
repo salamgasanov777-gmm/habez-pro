@@ -19,7 +19,10 @@
 //   get_factory_products — товары завода со статусом связи
 //                          (CONFIRMED / INFERRED / UNKNOWN / CONFLICTED);
 //   get_factory_documents — заводские документы по товарам, виду,
-//                          характеристике.
+//                          характеристике;
+//   search_competitors, get_competitor, get_competitor_products,
+//   find_analogs, compare_with_competitor — конкуренты (3.5): только
+//                          сотрудникам, гостю — отказ без данных.
 //
 // Phase 3.2: у каждого инструмента — описание, схема входа и выхода, права
 // и признак read_only / write: false (TOOL_SPECS). callTool проверяет
@@ -34,6 +37,7 @@ import { evidenceKeyMeta } from "../../knowledge/evidence-model.js";
 import { evidenceRoleForScope } from "../permissions.js";
 import { groupCardProperties, groupObservationProperties, sameValueKey } from "../retrieval/conflicts.js";
 import { loadFactoryData, searchFactories, factoryProfile, factoryProducts, factoryDocuments, productFactory, GROUPS } from "../factory/model.js";
+import { searchCompetitors, getCompetitor, getCompetitorProducts, findAnalogsTool, compareWithCompetitorTool } from "../competitor/tools.js";
 
 const json = (s, d) => { try { return JSON.parse(s); } catch { return d; } };
 const PUBLISHED = "p.status='published'";
@@ -58,6 +62,11 @@ const schemas = {
   get_factory_products: z.object({ factoryId: z.string().regex(/^[a-z0-9а-я-]{1,60}$/), group: z.string().max(40).nullable().optional(), productIds: z.array(z.number().int().positive()).max(60).optional() }),
   get_factory_documents: z.object({ factoryId: z.string().regex(/^[a-z0-9а-я-]{1,60}$/).nullable().optional(), productIds: z.array(z.number().int().positive()).max(60).optional(),
     types: z.array(z.string().regex(/^[a-z_]{2,40}$/)).max(12).optional(), specKeys: z.array(z.string().regex(/^[a-z0-9_]{2,40}$/)).max(12).optional() }),
+  search_competitors: z.object({ terms: z.array(z.string().min(2).max(80)).max(12) }),
+  get_competitor: z.object({ companyId: z.number().int().positive() }),
+  get_competitor_products: z.object({ companyId: z.number().int().positive().nullable().optional(), brandId: z.number().int().positive().nullable().optional(), categoryId: z.number().int().positive().nullable().optional() }),
+  find_analogs: z.object({ productId: z.number().int().positive() }),
+  compare_with_competitor: z.object({ productId: z.number().int().positive(), competitorProductId: z.number().int().positive() }),
 };
 
 function searchProducts(ctx, { terms, limit }) {
@@ -250,6 +259,11 @@ const IMPL = {
     const data = loadFactoryData(ctx);
     return data.factories.has(factoryId) ? factoryProducts(data, factoryId, { group: groupByLabel(group), productIds }) : null;
   },
+  search_competitors: searchCompetitors,
+  get_competitor: getCompetitor,
+  get_competitor_products: getCompetitorProducts,
+  find_analogs: findAnalogsTool,
+  compare_with_competitor: (ctx, args) => compareWithCompetitorTool(ctx, args, { getProductSpecs, comparisonRows }),
   get_factory_documents: (ctx, args) => {
     const data = loadFactoryData(ctx);
     const out = factoryDocuments(data, args);
@@ -329,14 +343,43 @@ export const TOOL_SPECS = {
     permissions: { public: "только упоминания документов в карточках витрины", staff: "документы public+internal", admin: "всё" },
   },
 };
+const COMPETITOR_PERMS = { public: "запрещено: сведения о конкурентах доступны сотрудникам", staff: "public + internal", admin: "всё, включая конфиденциальное" };
+Object.assign(TOOL_SPECS, {
+  search_competitors: {
+    description: "Найти компанию-конкурента, марку или товар конкурента по названию. Находит только то, что есть в данных Habez; нет совпадения — пустой список.",
+    input_schema: { type: "object", properties: { query: { type: "string", description: "Название компании, марки или товара, как пишет пользователь" } }, required: ["query"] },
+    output_schema: "совпадения: вид (компания / марка / товар), номер, название, компания, марка", permissions: COMPETITOR_PERMS,
+  },
+  get_competitor: {
+    description: "Карточка конкурента: компания, статус «конкурент», марки, товары, регионы, источники, число наблюдений и цен, что не установлено.",
+    input_schema: { type: "object", properties: { company: { type: "string", description: "Название компании" } }, required: ["company"] },
+    output_schema: "компания, марки, товары, регионы, источники, счётчики, что не установлено", permissions: COMPETITOR_PERMS,
+  },
+  get_competitor_products: {
+    description: "Товары конкурента: по компании, марке или нашему разделу каталога. Марка и производитель — разные поля.",
+    input_schema: { type: "object", properties: { company: { type: "string" }, brand: { type: "string" }, category: { type: "string", description: "Раздел каталога Habez словами" } } },
+    output_schema: "товары: название, компания, марка, наш раздел, фасовки", permissions: COMPETITOR_PERMS,
+  },
+  find_analogs: {
+    description: "Аналоги товара Habez у конкурентов: подтверждённые (источник или решение сотрудника), частичные с различиями, «не аналог», противоречия, и отдельно — предположения (INFERRED, confirmed: false).",
+    input_schema: { type: "object", properties: { product: PRODUCT }, required: ["product"] },
+    output_schema: "группы: confirmed, notAnalog, conflicted, inferred; у каждой связи — статус, вид связи, основание, источник, различия", permissions: COMPETITOR_PERMS,
+  },
+  compare_with_competitor: {
+    description: "Сравнить товар Habez с товаром конкурента: характеристики по ключу и условию (значение, единица, источник, дата, статус, «нет данных», разные единицы без пересчёта), статус аналога, цены конкурента отдельным блоком с датой и источником. Победителя не выбирает.",
+    input_schema: { type: "object", properties: { product: PRODUCT, competitor_product: { type: "string", description: "Название товара конкурента" } }, required: ["product", "competitor_product"] },
+    output_schema: "таблица сравнения, статус аналога, группы цен", permissions: COMPETITOR_PERMS,
+  },
+});
 for (const [name, spec] of Object.entries(TOOL_SPECS)) Object.assign(spec, { name, read_only: true, write: false });
 // Инструмент с записью сюда попасть не может: проверка при загрузке.
 if (Object.values(TOOL_SPECS).some((t) => t.write !== false || t.read_only !== true) || TOOL_NAMES.some((n) => !TOOL_SPECS[n])) {
   throw new Error("Habez AI: инструменты агента — только чтение");
 }
 // Какие инструменты показывать модели для этой роли.
+const STAFF_ONLY = new Set(["get_product_evidence", "search_competitors", "get_competitor", "get_competitor_products", "find_analogs", "compare_with_competitor"]);
 export const toolsForScope = (scope) => Object.values(TOOL_SPECS)
-  .filter((t) => scope !== "public" || t.name !== "get_product_evidence")
+  .filter((t) => scope !== "public" || !STAFF_ONLY.has(t.name))
   .map((t) => ({ name: t.name, description: t.description, input_schema: t.input_schema }));
 
 const changes = () => get("SELECT total_changes() AS n").n;

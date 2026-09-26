@@ -76,6 +76,13 @@ const STEPS = [
   ["2026-09-ai-reconciliation", () => {
     db.exec(readFileSync(resolve(here, "../ai/knowledge/reconciliation-schema.sql"), "utf8"));
   }],
+  // Habez AI, 3.5 Competitor Intelligence (roadmap: Phase 3 — Competitors):
+  // конкуренты, марки, их товары и фасовки, регионы, наблюдения
+  // характеристик и цен, аналоги. Только новые таблицы
+  // (api/src/ai/competitors/schema.sql, откат — rollback.sql).
+  ["2026-09-ai-competitors", () => {
+    db.exec(readFileSync(resolve(here, "../ai/competitors/schema.sql"), "utf8"));
+  }],
 ];
 
 // --check: только сказать, сколько миграций ещё не применено (для deploy.sh:
