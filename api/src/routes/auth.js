@@ -9,6 +9,11 @@ import { ApiError, badRequest, unauthorized, conflict, tooMany } from "../lib/er
 import { sendSms } from "../lib/notify.js";
 
 const REFRESH_COOKIE = "hgz_rt";
+// Срок годности сессий и кодов хранится как ISO ("2026-09-25T20:01:06.000Z"),
+// а datetime('now') отдаёт "2026-09-25 20:01:06". Строками их сравнивать
+// нельзя ('T' > ' ' — просроченное «живёт» до конца суток по UTC), поэтому
+// сроки сравниваются только через julianday().
+
 const phoneSchema = z.string().min(10).max(20).transform((s) => s.replace(/\D/g, "").replace(/^8/, "7"));
 
 function issueSession(reply, user, req) {
@@ -100,7 +105,7 @@ export default async function authRoutes(app) {
 
     const otp = get(
       `SELECT * FROM otp_codes WHERE tenant_id=? AND destination=? AND purpose='login'
-         AND consumed_at IS NULL AND expires_at > datetime('now')
+         AND consumed_at IS NULL AND julianday(expires_at) > julianday('now')
        ORDER BY id DESC LIMIT 1`, req.tenant.id, phone);
     if (!otp) throw badRequest("Код не найден или истёк — запросите новый");
     if (otp.attempts >= config.auth.otpMaxAttempts) throw tooMany("Слишком много попыток ввода кода");
@@ -121,7 +126,7 @@ export default async function authRoutes(app) {
     const token = req.cookies?.[REFRESH_COOKIE];
     if (!token) throw unauthorized("Сессия не найдена");
     const session = get(
-      `SELECT * FROM sessions WHERE token_hash=? AND revoked_at IS NULL AND expires_at > datetime('now')`,
+      `SELECT * FROM sessions WHERE token_hash=? AND revoked_at IS NULL AND julianday(expires_at) > julianday('now')`,
       sha256(token));
     if (!session) throw unauthorized("Сессия истекла, войдите заново");
 
