@@ -16,6 +16,7 @@ export const apiRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..")
 // доступа до чего дотянулся.
 export const LEVEL_VALUES = { public: "1,4 МПа", internal: "1,6 МПа", confidential: "1,9 МПа" };
 export const SECRET_REF = "lab-protocol-77";
+export const KOROED_SECRET = { value: "не менее 9 МПа", reference: "lab-koroed-9" };
 
 export async function prepareAiDb({ demo = false } = {}) {
   const file = process.env.DATABASE_FILE;
@@ -49,5 +50,9 @@ export async function prepareAiDb({ demo = false } = {}) {
     sourceReference: "passport-2026-09", accessLevel: "internal" }, null);
   ev.createObservation(1, { productId: ids.shov, specKey: "flexural_strength", originalValue: LEVEL_VALUES.confidential, sourceType: "measurement",
     sourceReference: SECRET_REF, accessLevel: "confidential" }, null);
+  // Конфиденциальный замер, который расходится с карточкой КОРОЕД (прочность
+  // на сжатие): гость и сотрудник видят только факт, администратор — всё.
+  ev.createObservation(1, { productId: ids.koroed, specKey: "compressive_strength", originalValue: "не менее 9 МПа", sourceType: "measurement",
+    sourceReference: "lab-koroed-9", accessLevel: "confidential" }, null);
   return ids;
 }

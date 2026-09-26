@@ -1,0 +1,1011 @@
+{
+  "about": "Habez AI Phase 3.2 — 30 детерминированных случаев. turns — реплики по порядку (состояние беседы переносится), проверяется последняя. Тест ai-agent-3-2.test.js гоняет их на тестовой базе с моделью-заглушкой; npm run ai:eval -- --set 3.2 — выборку на рабочих данных с настоящей моделью. scope по умолчанию staff.",
+  "cases": [
+    {
+      "id": 1,
+      "group": "search",
+      "turns": [
+        "Расскажи про ШОВа"
+      ],
+      "expected_intent": "product_lookup",
+      "expected_entities": {
+        "products": [
+          "shov"
+        ]
+      },
+      "expected_tools": [
+        "get_product",
+        "get_product_specs"
+      ],
+      "expected_evidence": {
+        "keys": [
+          "adhesion_strength"
+        ]
+      },
+      "expected_behavior": {
+        "mode": "CONFLICT",
+        "model": true,
+        "text": "Падеж «ШОВа» распознан как ШОВ; рассказ о товаре со ссылками, споры — все значения."
+      },
+      "forbidden_behavior": {
+        "context_excludes": [
+          "40 шт"
+        ]
+      }
+    },
+    {
+      "id": 2,
+      "group": "search",
+      "turns": [
+        "Расскажи про стандрат"
+      ],
+      "expected_intent": "product_lookup",
+      "expected_entities": {
+        "products": [
+          "standart"
+        ]
+      },
+      "expected_tools": [
+        "get_product"
+      ],
+      "expected_evidence": {},
+      "expected_behavior": {
+        "model": true,
+        "text": "Опечатка «стандрат» → СТАНДАРТ (расстояние правки 1)."
+      },
+      "forbidden_behavior": {}
+    },
+    {
+      "id": 3,
+      "group": "search",
+      "turns": [
+        "Расскажи про штукатурку ГИПСОМАКС-900"
+      ],
+      "expected_intent": "product_lookup",
+      "expected_entities": {
+        "products": [],
+        "unknown": [
+          "ГИПСОМАКС-900"
+        ]
+      },
+      "expected_tools": [],
+      "expected_evidence": {},
+      "expected_behavior": {
+        "mode": "NOT_FOUND",
+        "model": false,
+        "answer_includes": [
+          "в каталоге Habez нет"
+        ],
+        "text": "Неизвестный товар — ответ без модели, похожие товары за него не выдаются."
+      },
+      "forbidden_behavior": {
+        "model_call": true
+      }
+    },
+    {
+      "id": 4,
+      "group": "search",
+      "turns": [
+        "Что подходит для заделки швов ГКЛ?"
+      ],
+      "expected_intent": "application",
+      "expected_entities": {
+        "products": [
+          "gkl"
+        ]
+      },
+      "expected_tools": [
+        "search_products"
+      ],
+      "expected_evidence": {
+        "found": [
+          "shov"
+        ]
+      },
+      "expected_behavior": {
+        "model": true,
+        "text": "Подбор по задаче: ГКЛ — основание, в подбор не попадает; ШОВ найден."
+      },
+      "forbidden_behavior": {
+        "found_excludes": [
+          "gkl"
+        ]
+      }
+    },
+    {
+      "id": 5,
+      "group": "search",
+      "turns": [
+        "Что такое корроед?"
+      ],
+      "expected_intent": "product_lookup",
+      "expected_entities": {
+        "products": [
+          "koroed"
+        ]
+      },
+      "expected_tools": [
+        "get_product"
+      ],
+      "expected_evidence": {},
+      "expected_behavior": {
+        "model": true,
+        "text": "Опечатка и нижний регистр → КОРОЕД (не КОРОЕД 3,5)."
+      },
+      "forbidden_behavior": {}
+    },
+    {
+      "id": 6,
+      "group": "product",
+      "turns": [
+        "Расскажи про ШОВ"
+      ],
+      "expected_intent": "product_lookup",
+      "expected_entities": {
+        "products": [
+          "shov"
+        ]
+      },
+      "expected_tools": [
+        "get_product",
+        "get_product_specs"
+      ],
+      "expected_evidence": {
+        "keys": [
+          "adhesion_strength",
+          "compressive_strength"
+        ],
+        "statuses": {
+          "adhesion_strength": "unresolved"
+        }
+      },
+      "expected_behavior": {
+        "mode": "CONFLICT",
+        "model": true,
+        "text": "Рассказ о ШОВ; D4 и D2 — все значения, без победителя."
+      },
+      "forbidden_behavior": {
+        "context_excludes": [
+          "40 шт"
+        ]
+      }
+    },
+    {
+      "id": 7,
+      "group": "product",
+      "turns": [
+        "Что с АНТИПЛЕСЕНЬЮ?"
+      ],
+      "expected_intent": "product_lookup",
+      "expected_entities": {
+        "products": [
+          "antipleseni"
+        ]
+      },
+      "expected_tools": [
+        "get_product_specs"
+      ],
+      "expected_evidence": {
+        "keys": [
+          "consumption"
+        ],
+        "statuses": {
+          "consumption": "unresolved"
+        },
+        "values": [
+          "единицы разные, НЕ пересчитывать"
+        ]
+      },
+      "expected_behavior": {
+        "mode": "CONFLICT",
+        "model": true,
+        "text": "Расход мл/м² и г/м² — открытый вопрос D5, без пересчёта."
+      },
+      "forbidden_behavior": {
+        "context_excludes": [
+          "0,2 кг"
+        ]
+      }
+    },
+    {
+      "id": 8,
+      "group": "product",
+      "turns": [
+        "Что такое КОРОЕД?"
+      ],
+      "expected_intent": "product_lookup",
+      "expected_entities": {
+        "products": [
+          "koroed"
+        ]
+      },
+      "expected_tools": [
+        "get_product",
+        "get_product_specs"
+      ],
+      "expected_evidence": {},
+      "expected_behavior": {
+        "model": true,
+        "text": "Описание КОРОЕД из карточки со ссылками."
+      },
+      "forbidden_behavior": {}
+    },
+    {
+      "id": 9,
+      "group": "product",
+      "turns": [
+        "Расскажи про ШОВ и КОРОЕД"
+      ],
+      "expected_intent": "product_lookup",
+      "expected_entities": {
+        "products": [
+          "shov",
+          "koroed"
+        ]
+      },
+      "expected_tools": [
+        "get_product",
+        "get_product_specs"
+      ],
+      "expected_evidence": {},
+      "expected_behavior": {
+        "model": true,
+        "text": "Несколько товаров в одном вопросе — данные обоих, каждый отдельно."
+      },
+      "forbidden_behavior": {}
+    },
+    {
+      "id": 10,
+      "group": "product",
+      "turns": [
+        "Расскажи про ШОВ",
+        "А какая у него прочность?"
+      ],
+      "expected_intent": "spec_lookup",
+      "expected_entities": {
+        "products": [
+          "shov"
+        ],
+        "products_from": "state",
+        "specs": [
+          "adhesion_strength",
+          "compressive_strength"
+        ],
+        "ambiguous_spec": "strength"
+      },
+      "expected_tools": [
+        "get_product_specs"
+      ],
+      "expected_evidence": {
+        "values": [
+          "показать КАЖДЫЙ вид прочности"
+        ]
+      },
+      "expected_behavior": {
+        "mode": "CONFLICT",
+        "model": true,
+        "text": "«него» = ШОВ из беседы; прочность неоднозначна — каждый вид отдельно."
+      },
+      "forbidden_behavior": {}
+    },
+    {
+      "id": 11,
+      "group": "specs",
+      "turns": [
+        "Какая прочность у ШОВ?"
+      ],
+      "expected_intent": "spec_lookup",
+      "expected_entities": {
+        "products": [
+          "shov"
+        ],
+        "specs": [
+          "adhesion_strength",
+          "compressive_strength",
+          "flexural_strength"
+        ],
+        "ambiguous_spec": "strength"
+      },
+      "expected_tools": [
+        "get_product_specs"
+      ],
+      "expected_evidence": {
+        "keys": [
+          "adhesion_strength",
+          "compressive_strength"
+        ],
+        "values": [
+          "показать КАЖДЫЙ вид прочности"
+        ]
+      },
+      "expected_behavior": {
+        "mode": "CONFLICT",
+        "model": true,
+        "text": "«Прочность» неоднозначна: каждый вид отдельно, адгезия не выбирается сама."
+      },
+      "forbidden_behavior": {
+        "winner": true
+      }
+    },
+    {
+      "id": 12,
+      "group": "specs",
+      "turns": [
+        "Какая прочность сцепления у ШОВ?"
+      ],
+      "expected_intent": "spec_lookup",
+      "expected_entities": {
+        "products": [
+          "shov"
+        ],
+        "specs": [
+          "adhesion_strength"
+        ]
+      },
+      "expected_tools": [
+        "get_product_specs"
+      ],
+      "expected_evidence": {
+        "only_keys": [
+          "adhesion_strength"
+        ],
+        "statuses": {
+          "adhesion_strength": "unresolved"
+        }
+      },
+      "expected_behavior": {
+        "mode": "CONFLICT",
+        "model": true,
+        "text": "Только прочность сцепления: 0,5 и ≥0,3 (7 сут), D4."
+      },
+      "forbidden_behavior": {
+        "keys": [
+          "compressive_strength",
+          "flexural_strength"
+        ]
+      }
+    },
+    {
+      "id": 13,
+      "group": "specs",
+      "turns": [
+        "Какая прочность Стандарта?"
+      ],
+      "expected_intent": "spec_lookup",
+      "expected_entities": {
+        "products": [
+          "standart"
+        ],
+        "ambiguous_spec": "strength"
+      },
+      "expected_tools": [
+        "get_product_specs"
+      ],
+      "expected_evidence": {
+        "keys": [
+          "adhesion_strength"
+        ],
+        "statuses": {
+          "adhesion_strength": "unresolved"
+        },
+        "values": [
+          "не менее 0,6 МПа"
+        ]
+      },
+      "expected_behavior": {
+        "mode": "CONFLICT",
+        "model": true,
+        "text": "0,5 и ≥0,6 МПа — D1, без выбора."
+      },
+      "forbidden_behavior": {
+        "winner": true
+      }
+    },
+    {
+      "id": 14,
+      "group": "specs",
+      "turns": [
+        "Какая морозостойкость у ШОВ?"
+      ],
+      "expected_intent": "spec_lookup",
+      "expected_entities": {
+        "products": [
+          "shov"
+        ],
+        "specs": [
+          "frost_resistance"
+        ]
+      },
+      "expected_tools": [
+        "get_product_specs"
+      ],
+      "expected_evidence": {},
+      "expected_behavior": {
+        "mode": "NOT_FOUND",
+        "model": false,
+        "answer_includes": [
+          "нет «морозостойкость»"
+        ],
+        "text": "Характеристики нет — честное «нет данных» без модели."
+      },
+      "forbidden_behavior": {
+        "model_call": true
+      }
+    },
+    {
+      "id": 15,
+      "group": "specs",
+      "turns": [
+        "Правда, что прочность ШОВ на сжатие 5 МПа?"
+      ],
+      "expected_intent": "spec_lookup",
+      "expected_entities": {
+        "products": [
+          "shov"
+        ],
+        "specs": [
+          "compressive_strength"
+        ]
+      },
+      "expected_tools": [
+        "get_product_specs"
+      ],
+      "expected_evidence": {
+        "only_keys": [
+          "compressive_strength"
+        ],
+        "values": [
+          "не менее 2,5 МПа"
+        ]
+      },
+      "expected_behavior": {
+        "mode": "CONFLICT",
+        "model": true,
+        "text": "5 МПа не подтверждается; называются 2 и ≥2,5 из данных (D2)."
+      },
+      "forbidden_behavior": {
+        "context_excludes": [
+          " 5 МПа"
+        ]
+      }
+    },
+    {
+      "id": 16,
+      "group": "conditions",
+      "turns": [
+        "Расскажи про ШОВ",
+        "Какая прочность через 28 суток?"
+      ],
+      "expected_intent": "condition",
+      "expected_entities": {
+        "products": [
+          "shov"
+        ],
+        "products_from": "state",
+        "conditions": {
+          "age_days": 28
+        }
+      },
+      "expected_tools": [
+        "get_product_specs"
+      ],
+      "expected_evidence": {
+        "values": [
+          "7 сут"
+        ]
+      },
+      "expected_behavior": {
+        "model": true,
+        "text": "Значения на 7 суток не используются (названы как «другие условия»); без указанного возраста — с пометкой."
+      },
+      "forbidden_behavior": {
+        "condition_keys": [
+          "age_days=7"
+        ]
+      }
+    },
+    {
+      "id": 17,
+      "group": "conditions",
+      "turns": [
+        "Расскажи про ШОВ",
+        "Какая прочность через 7 суток?"
+      ],
+      "expected_intent": "condition",
+      "expected_entities": {
+        "products": [
+          "shov"
+        ],
+        "products_from": "state",
+        "conditions": {
+          "age_days": 7
+        }
+      },
+      "expected_tools": [
+        "get_product_specs"
+      ],
+      "expected_evidence": {
+        "condition_keys": [
+          "age_days=7"
+        ]
+      },
+      "expected_behavior": {
+        "model": true,
+        "text": "Значения на 7 суток есть и используются с условием рядом."
+      },
+      "forbidden_behavior": {}
+    },
+    {
+      "id": 18,
+      "group": "conditions",
+      "turns": [
+        "Сколько воды на мешок КОРОЕДА?"
+      ],
+      "expected_intent": "condition",
+      "expected_entities": {
+        "products": [
+          "koroed"
+        ],
+        "specs": [
+          "water_per_bag"
+        ],
+        "conditions": {
+          "per": "bag"
+        }
+      },
+      "expected_tools": [
+        "get_product_specs"
+      ],
+      "expected_evidence": {
+        "keys": [
+          "water_per_bag"
+        ],
+        "condition_keys": [
+          "per=bag"
+        ]
+      },
+      "expected_behavior": {
+        "model": true,
+        "text": "5–7 л на мешок (water_per_bag, per=bag), связь с water_ratio — D10, без л/кг."
+      },
+      "forbidden_behavior": {
+        "context_excludes": [
+          "л/кг"
+        ]
+      }
+    },
+    {
+      "id": 19,
+      "group": "conditions",
+      "turns": [
+        "Какой расход у НАЛЬ при толщине 1 мм?"
+      ],
+      "expected_intent": "condition",
+      "expected_entities": {
+        "products": [
+          "nal"
+        ],
+        "conditions": {
+          "layer_mm": 1
+        }
+      },
+      "expected_tools": [
+        "get_product_specs"
+      ],
+      "expected_evidence": {
+        "values": [
+          "толщине слоя 1 мм"
+        ]
+      },
+      "expected_behavior": {
+        "model": true,
+        "text": "Расход при слое 1 мм; значения при другой толщине не используются."
+      },
+      "forbidden_behavior": {}
+    },
+    {
+      "id": 20,
+      "group": "variants",
+      "turns": [
+        "Сколько листов ГКЛ 12,5 мм на поддоне?"
+      ],
+      "expected_intent": "packaging",
+      "expected_entities": {
+        "products": [
+          "gkl"
+        ],
+        "specs": [
+          "per_pallet"
+        ],
+        "variant": "лист 12,5 мм"
+      },
+      "expected_tools": [
+        "get_product"
+      ],
+      "expected_evidence": {
+        "variants": [
+          "лист 12,5 мм"
+        ],
+        "values": [
+          "на поддоне: 51 шт"
+        ]
+      },
+      "expected_behavior": {
+        "model": true,
+        "text": "51 лист — только фасовка 12,5 мм."
+      },
+      "forbidden_behavior": {
+        "context_excludes": [
+          "63"
+        ]
+      }
+    },
+    {
+      "id": 21,
+      "group": "variants",
+      "turns": [
+        "Сколько листов ГКЛ 9,5 мм?"
+      ],
+      "expected_intent": "packaging",
+      "expected_entities": {
+        "products": [
+          "gkl"
+        ],
+        "variant": "лист 9,5 мм"
+      },
+      "expected_tools": [
+        "get_product"
+      ],
+      "expected_evidence": {
+        "variants": [
+          "лист 9,5 мм"
+        ],
+        "values": [
+          "на поддоне: 63 шт"
+        ]
+      },
+      "expected_behavior": {
+        "model": true,
+        "text": "63 листа — только фасовка 9,5 мм."
+      },
+      "forbidden_behavior": {
+        "context_excludes": [
+          "51"
+        ]
+      }
+    },
+    {
+      "id": 22,
+      "group": "variants",
+      "turns": [
+        "Сколько листов ГКЛ на поддоне?"
+      ],
+      "expected_intent": "packaging",
+      "expected_entities": {
+        "products": [
+          "gkl"
+        ]
+      },
+      "expected_tools": [
+        "get_product"
+      ],
+      "expected_evidence": {},
+      "expected_behavior": {
+        "mode": "CLARIFICATION",
+        "model": false,
+        "clarification_options": [
+          "лист 9,5 мм",
+          "лист 12,5 мм"
+        ],
+        "text": "Фасовка не названа, значения разные — уточнение, а не выбор."
+      },
+      "forbidden_behavior": {
+        "model_call": true
+      }
+    },
+    {
+      "id": 23,
+      "group": "variants",
+      "turns": [
+        "Сколько листов ГКЛ на поддоне?",
+        "12,5 мм"
+      ],
+      "expected_intent": "packaging",
+      "expected_entities": {
+        "products": [
+          "gkl"
+        ],
+        "products_from": "state",
+        "variant": "лист 12,5 мм"
+      },
+      "expected_tools": [
+        "get_product"
+      ],
+      "expected_evidence": {
+        "variants": [
+          "лист 12,5 мм"
+        ]
+      },
+      "expected_behavior": {
+        "model": true,
+        "text": "Ответ на уточнение продолжает вопрос: 12,5 мм → 51."
+      },
+      "forbidden_behavior": {
+        "context_excludes": [
+          "63"
+        ]
+      }
+    },
+    {
+      "id": 24,
+      "group": "comparison",
+      "turns": [
+        "Сравни ШОВ и Стандарт"
+      ],
+      "expected_intent": "comparison",
+      "expected_entities": {
+        "products": [
+          "shov",
+          "standart"
+        ]
+      },
+      "expected_tools": [
+        "compare_products"
+      ],
+      "expected_evidence": {
+        "comparison_rows": [
+          "Прочность сцепления (адгезия)"
+        ]
+      },
+      "expected_behavior": {
+        "mode": "COMPARISON",
+        "model": true,
+        "text": "Таблица сравнения: строки по ключу и условию, расхождения обоих, «нет данных»."
+      },
+      "forbidden_behavior": {
+        "winner": true
+      }
+    },
+    {
+      "id": 25,
+      "group": "comparison",
+      "turns": [
+        "Расскажи про ШОВ",
+        "А какая у него прочность?",
+        "А у Стандарта?",
+        "Сравни их"
+      ],
+      "expected_intent": "comparison",
+      "expected_entities": {
+        "products": [
+          "shov",
+          "standart"
+        ],
+        "products_from": "state",
+        "specs": [
+          "adhesion_strength"
+        ]
+      },
+      "expected_tools": [
+        "compare_products"
+      ],
+      "expected_evidence": {
+        "comparison_rows": [
+          "Прочность сцепления (адгезия)"
+        ]
+      },
+      "expected_behavior": {
+        "mode": "COMPARISON",
+        "model": true,
+        "text": "«их» = ШОВ и Стандарт из беседы; сравнение прочности."
+      },
+      "forbidden_behavior": {}
+    },
+    {
+      "id": 26,
+      "group": "comparison",
+      "turns": [
+        "Сравни ШОВ и Стандарт по прочности, времени схватывания и расходу воды"
+      ],
+      "expected_intent": "comparison",
+      "expected_entities": {
+        "products": [
+          "shov",
+          "standart"
+        ],
+        "specs": [
+          "adhesion_strength",
+          "setting_time",
+          "water_per_bag"
+        ]
+      },
+      "expected_tools": [
+        "compare_products"
+      ],
+      "expected_evidence": {
+        "comparison_rows": [
+          "Прочность сцепления (адгезия)",
+          "Время схватывания"
+        ],
+        "missing_cells": true
+      },
+      "expected_behavior": {
+        "mode": "COMPARISON",
+        "model": true,
+        "text": "Три характеристики, у Стандарта нет времени схватывания — «нет данных»."
+      },
+      "forbidden_behavior": {
+        "winner": true
+      }
+    },
+    {
+      "id": 27,
+      "group": "comparison",
+      "turns": [
+        "Сравни ШОВ и Стандарт по трём характеристикам"
+      ],
+      "expected_intent": "comparison",
+      "expected_entities": {
+        "products": [
+          "shov",
+          "standart"
+        ]
+      },
+      "expected_tools": [],
+      "expected_evidence": {},
+      "expected_behavior": {
+        "mode": "CLARIFICATION",
+        "model": false,
+        "text": "Какие три — не сказано: уточнение с примером."
+      },
+      "forbidden_behavior": {
+        "model_call": true
+      }
+    },
+    {
+      "id": 28,
+      "group": "conflicts",
+      "turns": [
+        "Какие есть расхождения у Стандарта?"
+      ],
+      "expected_intent": "conflict",
+      "expected_entities": {
+        "products": [
+          "standart"
+        ]
+      },
+      "expected_tools": [
+        "get_product_specs"
+      ],
+      "expected_evidence": {
+        "keys": [
+          "adhesion_strength"
+        ],
+        "only_disputed": true
+      },
+      "expected_behavior": {
+        "mode": "CONFLICT",
+        "model": true,
+        "text": "Только спорные свойства, с происхождением значений."
+      },
+      "forbidden_behavior": {
+        "winner": true
+      }
+    },
+    {
+      "id": 29,
+      "group": "conflicts",
+      "scope": "public",
+      "turns": [
+        "Какая прочность на сжатие у КОРОЕДа?"
+      ],
+      "expected_intent": "spec_lookup",
+      "expected_entities": {
+        "products": [
+          "koroed"
+        ]
+      },
+      "expected_tools": [
+        "get_product_specs"
+      ],
+      "expected_evidence": {
+        "values": [
+          "окончательное значение не опубликовано"
+        ]
+      },
+      "expected_behavior": {
+        "mode": "CONFLICT",
+        "model": true,
+        "text": "Гость: есть внутренние данные, окончательное значение не опубликовано; конфиденциальное значение не показано."
+      },
+      "forbidden_behavior": {
+        "context_excludes": [
+          "9 МПа",
+          "lab-koroed-9"
+        ]
+      }
+    },
+    {
+      "id": 30,
+      "group": "conflicts",
+      "turns": [
+        "Какое время схватывания у ШОВ?"
+      ],
+      "expected_intent": "spec_lookup",
+      "expected_entities": {
+        "products": [
+          "shov"
+        ],
+        "specs": [
+          "setting_time",
+          "setting_time_start"
+        ]
+      },
+      "expected_tools": [
+        "get_product_specs"
+      ],
+      "expected_evidence": {
+        "keys": [
+          "setting_time",
+          "setting_time_start"
+        ],
+        "statuses": {
+          "setting_time": "unresolved",
+          "setting_time_start": "unresolved"
+        },
+        "values": [
+          "одно ли это свойство — не решено"
+        ]
+      },
+      "expected_behavior": {
+        "mode": "CONFLICT",
+        "model": true,
+        "text": "60 и 70 мин — D3/D6: одно ли это свойство, не решено."
+      },
+      "forbidden_behavior": {
+        "winner": true
+      }
+    }
+  ],
+  "live": [
+    10,
+    11,
+    13,
+    16,
+    18,
+    20,
+    25,
+    26,
+    30,
+    "L1"
+  ],
+  "live_extra": [
+    {
+      "id": "L1",
+      "group": "tool_loop",
+      "turns": [
+        "Какой грунтовкой обработать основание перед ШОВ и что о ней известно?"
+      ],
+      "expected_intent": "product_lookup",
+      "expected_entities": {
+        "products": [
+          "shov"
+        ]
+      },
+      "expected_tools": [
+        "get_product"
+      ],
+      "expected_evidence": {
+        "citation_products": [
+          "ЭКОНОМ"
+        ]
+      },
+      "expected_behavior": {
+        "model": true,
+        "model_tools": true,
+        "text": "В карточке ШОВ названа грунтовка «Эконом»; данных о ней в плане нет — модель сама запрашивает их инструментом и отвечает со ссылками на них."
+      },
+      "forbidden_behavior": {}
+    }
+  ]
+}

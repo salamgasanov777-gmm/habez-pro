@@ -17,13 +17,17 @@ import { db, all } from "../../../db/index.js";
 import { getProvider } from "../provider/index.js";
 import { runAgent } from "../runtime/agent.js";
 import { loadEvalCases, evaluateCase } from "./grounding-eval.js";
+import { loadEval32, runConversation, evaluateCase32 } from "./eval-3-2.js";
 
 const arg = (name, d = null) => {
   const i = process.argv.indexOf(`--${name}`);
   return i > 0 ? process.argv[i + 1] : d;
 };
 const scope = arg("scope", "staff");
-const only = arg("only") ? new Set(arg("only").split(",").map(Number)) : null;
+// --set 3.2 — набор Phase 3.2 (беседы из нескольких реплик), по умолчанию
+// только выборка «live» (10 случаев).
+const set = arg("set", "3.1");
+const only = arg("only") ? new Set(arg("only").split(",").map((x) => (/^\d+$/.test(x) ? Number(x) : x))) : null;
 
 db.exec("PRAGMA query_only = ON");
 
@@ -44,7 +48,22 @@ console.log(`Habez AI eval · ${provider.name} ${provider.model} · уровен
 console.log(`отпечаток базы до: ${before}\n`);
 
 const results = [];
-for (const c of loadEvalCases()) {
+if (set === "3.2") {
+  const data = loadEval32();
+  const pick = only || new Set(data.live);
+  for (const c of [...data.cases, ...(data.live_extra || [])]) {
+    if (!pick.has(c.id)) continue;
+    const { last, all: turns } = await runConversation(c, { provider });
+    const ev = evaluateCase32(c, last, { slugOf, live: true });
+    const sum = (f) => turns.reduce((n, t) => n + (f(t) || 0), 0);
+    results.push({ ...ev, question: c.turns.join(" → "), behavior: c.expected_behavior.text, answer: last.answer, mode: last.mode, route: last.route,
+      grounding: last.grounding, timings: last.timings, metrics: last.metrics, toolCalls: last.toolCalls,
+      usage: { input_tokens: sum((t) => t.usage?.input_tokens), output_tokens: sum((t) => t.usage?.output_tokens) },
+      model: last.model, turnsModel: turns.filter((t) => t.model).length });
+    console.log(`${ev.pass ? "PASS" : "FAIL"} #${c.id} ${c.turns.join(" → ")}  [${last.mode}; инструменты: ${last.toolCalls.map((t) => `${t.source === "model" ? "M:" : ""}${t.name}`).join(",")}] (${last.timings.totalMs} мс${ev.warn.length ? `; ${ev.warn.join("; ")}` : ""})`);
+    for (const f of ev.fails) console.log(`     ✗ ${f}`);
+  }
+} else for (const c of loadEvalCases()) {
   if (only && !only.has(c.id)) continue;
   const r = await runAgent({ tenantId: 1, scope, question: c.question, provider });
   const ev = evaluateCase(c, r, { slugOf, live: true });
@@ -55,10 +74,12 @@ for (const c of loadEvalCases()) {
 }
 const after = fingerprint();
 const sum = (f) => results.reduce((n, r) => n + (f(r) || 0), 0);
-const llm = results.filter((r) => r.model);
+const llm = results.filter((r) => r.model && r.timings.llmFirstTokenMs !== null);
 const med = (xs) => { const s = [...xs].sort((a, b) => a - b); return s.length ? s[Math.floor(s.length / 2)] : null; };
 const summary = {
-  started, provider: provider.name, model: provider.model, scope, total: results.length, passed: results.filter((r) => r.pass).length,
+  started, set, provider: provider.name, model: provider.model, scope, total: results.length, passed: results.filter((r) => r.pass).length,
+  avgToolCalls: results.length ? +(sum((r) => r.metrics?.tool_calls) / results.length).toFixed(1) : null,
+  avgContextChars: results.length ? Math.round(sum((r) => r.metrics?.context_chars) / results.length) : null,
   tokens: { in: sum((r) => r.usage?.input_tokens), out: sum((r) => r.usage?.output_tokens) },
   latencyMs: {
     retrieval: { median: med(results.map((r) => r.timings.retrievalMs)), max: Math.max(...results.map((r) => r.timings.retrievalMs)) },
@@ -74,7 +95,7 @@ console.log(`время (медиана): поиск ${summary.latencyMs.retriev
 console.log(`отпечаток базы после: ${after} — ${summary.dbUnchanged ? "без изменений" : "ИЗМЕНИЛСЯ"}`);
 const dir = resolve(config.root, "var/ai-eval");
 mkdirSync(dir, { recursive: true });
-const file = resolve(dir, `eval-${scope}-${started.replace(/[:.]/g, "-")}.json`);
+const file = resolve(dir, `eval-${set}-${scope}-${started.replace(/[:.]/g, "-")}.json`);
 writeFileSync(file, JSON.stringify({ summary, results }, null, 2));
 console.log(`отчёт: ${file}`);
 process.exit(summary.passed === summary.total && summary.dbUnchanged ? 0 : 1);

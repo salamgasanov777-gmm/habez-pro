@@ -120,7 +120,8 @@ describe("права — проверка через агента: что пол
   test("гость и покупатель: только витрина — ни одного наблюдения, документа и скрытого значения", async () => {
     for (const h of [guest(2), bearer(users.customer.token)]) {
       fake.mode = "cite";
-      const r = await chat(h, Q);
+      // В карточке ШОВ прочности на изгиб нет — гость спрашивает о прочности вообще.
+      const r = await chat(h, { message: "Какая прочность у ШОВ?" });
       assert.equal(r.meta.scope, "public");
       const input = modelInput();
       for (const v of Object.values(LEVEL_VALUES)) assert.ok(!input.includes(v), `модели не ушло ${v}`);
@@ -158,7 +159,9 @@ describe("поток, «Стоп», повтор", () => {
   test("ответ идёт кусками: start → meta → delta… → done с источниками и временем этапов", async () => {
     fake.mode = "cite";
     const r = await chat(bearer(users.manager.token), { message: "Сравни ШОВ и Стандарт", conversationId: "e2e-conv-0001" });
-    assert.deepEqual(r.events.slice(0, 2).map((e) => e.event), ["start", "meta"]);
+    const order = r.events.map((e) => e.event);
+    assert.equal(order[0], "start");
+    assert.ok(order.indexOf("meta") < order.indexOf("delta"), "сначала сводка, потом текст");
     assert.equal(r.start.conversationId, "e2e-conv-0001");
     assert.ok(r.events.filter((e) => e.event === "delta").length > 1);
     assert.equal(r.events.at(-1).event, "done");
@@ -292,7 +295,7 @@ describe("проверка ответа модели (validator) на живом
     const admin = await chat(bearer(users.admin.token), { message: "Какая прочность на изгиб у ШОВ?" });
     assert.equal(admin.done.withheld, false, "администратору это значение положено");
     fake.leak = LEVEL_VALUES.internal;
-    const pub = await chat(guest(4), { message: "Какая прочность на изгиб у ШОВ?" });
+    const pub = await chat(guest(4), { message: "Какая прочность у ШОВ?" });
     assert.equal(pub.done.withheld, true, "гостю внутреннее значение не положено");
   });
 
@@ -370,6 +373,84 @@ describe("защита от расходов", () => {
     assert.equal((await chat(bearer(users.manager.token), { message: "x".repeat(2001) })).status, 400);
     assert.equal((await chat(bearer(users.manager.token), { message: "x", history: Array.from({ length: 21 }, () => ({ role: "user", content: "a" })) })).status, 400);
     assert.equal(fake.requests.length, n);
+  });
+});
+
+describe("Phase 3.2: агент с инструментами через HTTP", () => {
+  test("модель вызывает инструмент: сервер выполняет его и отдаёт результат, ответ ссылается на него", async () => {
+    fake.mode = "tool";
+    fake.toolCall = { name: "get_product_specs", input: { product: "СТАНДАРТ", specs: ["прочность сцепления"] } };
+    const n = fake.requests.length;
+    const r = await chat(bearer(users.manager.token), { message: "Расскажи про ШОВ" });
+    const [first, second] = fake.requests.slice(n);
+    assert.ok(first.body.tools.some((t) => t.name === "get_product_specs"), "модели переданы инструменты");
+    assert.equal(first.toolUse.name, "get_product_specs");
+    const result = second.body.messages.at(-1).content.find((b) => b.type === "tool_result");
+    assert.match(result.content, /СТАНДАРТ|Стандарт/i);
+    assert.ok(r.done.metrics.tool_calls_model >= 1 && r.done.metrics.turns === 2);
+    assert.ok(r.done.citations.some((c) => /СТАНДАРТ/.test(c.product)), "ответ ссылается на данные из инструмента");
+    assert.equal(r.done.grounding.invalidCitations.length, 0);
+    fake.toolCall = null;
+  });
+
+  test("бесконечные вызовы: повтор не выполняется, последний ход — без инструментов", async () => {
+    fake.mode = "tool-loop";
+    fake.toolCall = { name: "search_knowledge", input: { query: "шов" } };
+    const n = fake.requests.length;
+    const r = await chat(bearer(users.manager.token), { message: "Расскажи про ШОВ" });
+    const reqs = fake.requests.slice(n);
+    assert.equal(reqs.length, config.ai.agent.maxTurns);
+    assert.equal(reqs.at(-1).body.tool_choice?.type, "none");
+    assert.equal(r.done.metrics.tool_calls_model, 1, "одинаковый вызов выполнен один раз");
+    assert.ok(r.text.length > 0);
+    fake.toolCall = null;
+  });
+
+  test("гостю модель не получает get_product_evidence", async () => {
+    fake.mode = "cite";
+    await chat(guest(80), { message: "Какая прочность у ШОВ?" });
+    assert.ok(!fake.last().body.tools.some((t) => t.name === "get_product_evidence"));
+  });
+
+  test("беседа: состояние и сквозные номера [E#] между сообщениями", async () => {
+    fake.mode = "cite";
+    const h = bearer(users.manager.token);
+    let state = {};
+    let refBase = 0;
+    const turn = async (message) => {
+      const r = await chat(h, { message, state, refBase, history: [] });
+      state = r.done.state;
+      const ids = r.done.citations.map((c) => Number(c.id.slice(1)));
+      if (ids.length) assert.ok(Math.min(...ids) > refBase, `номера ${message} продолжают прошлые`);
+      refBase = r.done.refNext;
+      return r;
+    };
+    await turn("Расскажи про ШОВ");
+    assert.equal(state.current_product, "shov");
+    const b = await turn("А какая у него прочность?");
+    assert.deepEqual([b.meta.route.productSlugs, b.meta.route.productsFrom], [["shov"], "state"]);
+    await turn("А у Стандарта?");
+    const d = await turn("Сравни их");
+    assert.equal(d.meta.mode, "COMPARISON");
+    assert.deepEqual(d.meta.comparison.products, ["ШОВ", "СТАНДАРТ"]);
+    assert.ok(d.meta.comparison.rows.length > 0);
+  });
+
+  test("уточнение: без модели, варианты в meta, ответ на уточнение продолжает вопрос", async () => {
+    const n = fake.requests.length;
+    const r = await chat(bearer(users.manager.token), { message: "Сколько листов ГКЛ на поддоне?" });
+    assert.equal(r.meta.mode, "CLARIFICATION");
+    assert.deepEqual(r.meta.clarification.options, ["лист 9,5 мм", "лист 12,5 мм"]);
+    assert.equal(fake.requests.length, n, "модель не вызывалась");
+    fake.mode = "cite";
+    const r2 = await chat(bearer(users.manager.token), { message: "12,5 мм", state: r.done.state, refBase: r.done.refNext });
+    assert.equal(r2.meta.route.variant, "лист 12,5 мм");
+    assert.ok(!modelInput().includes("63 шт"), "данные другой фасовки модели не ушли");
+  });
+
+  test("состояние беседы проверяется: чужие поля — 400", async () => {
+    assert.equal((await chat(bearer(users.manager.token), { message: "x", state: { evil: true } })).status, 400);
+    assert.equal((await chat(bearer(users.manager.token), { message: "x", refBase: -1 })).status, 400);
   });
 });
 

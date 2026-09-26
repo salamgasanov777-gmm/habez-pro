@@ -127,7 +127,7 @@ describe("поиск данных", () => {
 
   test("подбор по задаче: ищет по каталогу, основание (ГКЛ) в ответ не попадает", async () => {
     const r = await ask("public", "Какие сухие смеси Habez подходят для заделки швов ГКЛ?");
-    assert.equal(r.intent, "recommend");
+    assert.equal(r.intent, "application");
     assert.ok(r.found.includes(ids.shov), "ШОВ найден");
     assert.ok(!r.found.includes(ids.gkl), "лист ГКЛ — не сухая смесь");
   });
@@ -294,13 +294,14 @@ describe("поток и совместимость", () => {
     const ev = sse(res.body);
     assert.equal(ev[0].event, "start");
     assert.equal(ev[0].data.conversationId, "test-conv-0001");
-    assert.equal(ev[1].event, "meta");
-    assert.equal(ev[1].data.intent, "compare");
+    const meta = ev.find((e) => e.event === "meta");
+    assert.ok(ev.indexOf(meta) < ev.findIndex((e) => e.event === "delta"));
+    assert.equal(meta.data.intent, "comparison");
     assert.ok(ev.filter((e) => e.event === "delta").length > 1, "ответ идёт кусками");
     const done = ev.find((e) => e.event === "done").data;
     assert.ok(done.citations.length > 0);
     assert.equal(done.grounding.grounded, true);
-    assert.ok(ev[1].data.conflicts.length > 0, "расхождения отданы интерфейсу");
+    assert.ok(meta.data.conflicts.length > 0, "расхождения отданы интерфейсу");
   });
 
   test("агент ничего не пишет в базу", async () => {

@@ -213,11 +213,15 @@ describe("шесть инструментов: права, только чтен
     assert.throws(() => tools.callTool("compare_products", { productIds: [ids.shov] }, T("admin")), "меньше двух — ошибка аргументов");
   });
 
-  test("search_knowledge: гостю — пусто; сотруднику — без конфиденциального; нет совпадений — пусто", () => {
-    assert.deepEqual(tools.callTool("search_knowledge", { terms: ["1,9"] }, T("public")).items, []);
+  test("search_knowledge: гостю — только витрина; сотруднику — без конфиденциального; нет совпадений — пусто", () => {
+    const pub = tools.callTool("search_knowledge", { terms: ["шов", "мпа"], limit: 20 }, T("public")).items;
+    assert.ok(pub.length > 0);
+    assert.ok(pub.every((o) => ["product", "section", "card_row", "variant"].includes(o.type)), "гостю — ни наблюдений, ни вопросов сверки");
+    assert.ok(!JSON.stringify(pub).includes(LEVEL_VALUES.internal) && !JSON.stringify(pub).includes(LEVEL_VALUES.confidential));
     const staff = tools.callTool("search_knowledge", { terms: ["мпа"], limit: 20 }, T("staff")).items;
-    assert.ok(staff.length > 0 && staff.every((o) => o.access_level !== "confidential"));
-    assert.ok(tools.callTool("search_knowledge", { terms: ["1,9 мпа"], limit: 20 }, T("admin")).items.some((o) => o.access_level === "confidential"));
+    assert.ok(staff.some((o) => o.type === "observation") && staff.every((o) => o.access !== "confidential"));
+    assert.ok(tools.callTool("search_knowledge", { terms: ["1,9 мпа"], limit: 20 }, T("admin")).items.some((o) => o.access === "confidential"));
+    assert.ok(tools.callTool("search_knowledge", { terms: ["d4", "сверка"], limit: 20 }, T("staff")).items.some((o) => o.type === "question"), "вопросы сверки ищутся");
     assert.deepEqual(tools.callTool("search_knowledge", { terms: ["абракадабра"] }, T("admin")).items, []);
   });
 

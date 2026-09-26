@@ -244,6 +244,56 @@ for (const [label, w, h, mobile] of [["desktop", 1280, 900, false], ["mobile-375
     assert(await js(`${lastBot}.dataset.status === "done"`), "повтор удался");
   });
 
+  await check(`${label}: 3.2 — беседа из четырёх реплик до таблицы сравнения, номера источников не повторяются`, async () => {
+    await clickText("button", "Новая беседа");
+    fake.mode = "cite";
+    for (const q of ["Расскажи про ШОВ", "А какая у него прочность?", "А у Стандарта?", "Сравни их"]) {
+      await ask(q);
+      await idle();
+    }
+    assert(await js(`${lastBot}.dataset.mode === "COMPARISON"`), "режим сравнения");
+    await waitFor(`!!${lastBot}.querySelector(".ai-compare table")`, "таблица сравнения");
+    assert(await js(`[...${lastBot}.querySelectorAll(".ai-compare thead th")].map((t) => t.textContent).join("|") === "Характеристика|ШОВ|СТАНДАРТ"`), "столбцы — ШОВ и СТАНДАРТ");
+    // У каждого сообщения свои номера: множества не пересекаются и растут.
+    const sets = await js(`[...document.querySelectorAll(".ai-msg.bot")].map((m) => [...m.querySelectorAll(".ai-text .ai-ref, .ai-compare .ai-ref")].map((b) => Number(b.textContent)))`);
+    const nonEmpty = sets.filter((x) => x.length);
+    assert(nonEmpty.length >= 3, "ссылки в нескольких сообщениях");
+    for (let i = 1; i < nonEmpty.length; i += 1) assert(Math.min(...nonEmpty[i]) > Math.max(...nonEmpty[i - 1]), `номера сообщения ${i + 1} не продолжают предыдущее`);
+    // Номер в таблице ведёт к источнику этого сообщения.
+    const ref = await js(`${lastBot}.querySelector(".ai-compare .ai-ref").textContent`);
+    await js(`${lastBot}.querySelector(".ai-compare .ai-ref").click()`);
+    await waitFor(`${lastBot}.querySelector(".ai-source.on .ai-ref")?.textContent === ${JSON.stringify(ref)}`, "источник из таблицы подсвечен");
+    assert(await noHorizontalScroll(), "горизонтальная прокрутка страницы из-за таблицы");
+    await shot(`${label}-08-comparison`);
+  });
+
+  await check(`${label}: 3.2 — уточнение кнопками, ответ продолжает вопрос`, async () => {
+    await clickText("button", "Новая беседа");
+    const n = fake.requests.length;
+    await ask("Сколько листов ГКЛ на поддоне?");
+    await idle();
+    await waitFor(`[...${lastBot}.querySelectorAll(".ai-clarify .chip")].map((b) => b.textContent).join("|") === "лист 9,5 мм|лист 12,5 мм"`, "варианты уточнения");
+    assert(fake.requests.length === n, "модель не вызывалась");
+    assert(!(await js(`!!${lastBot}.querySelector(".ai-warn")`)), "под уточнением нет предупреждения проверки");
+    await shot(`${label}-09-clarify`);
+    fake.mode = "cite";
+    await js(`[...${lastBot}.querySelectorAll(".ai-clarify .chip")].find((b) => b.textContent === "лист 12,5 мм").click()`);
+    await waitFor(`document.querySelectorAll(".ai-msg.bot").length === 2`, "ответ на уточнение");
+    await idle();
+    const t = await js(`${lastBot}.textContent`);
+    assert(t.includes("12,5") && !t.includes("63"), "ответ — про 12,5 мм, без чужой фасовки");
+  });
+
+  await check(`${label}: 3.2 — понятное состояние загрузки, без внутренних шагов`, async () => {
+    fake.mode = "slow";
+    await ask("Какая прочность сцепления у ШОВ?");
+    await waitFor(`/Ищу данные|Проверяю источники/.test(${lastBot}?.querySelector(".ai-typing-row")?.textContent || "")`, "подпись «Ищу данные…» или «Проверяю источники…»");
+    assert(!(await js(`/get_product|search_knowledge|tool/.test(document.querySelector(".ai-log").textContent)`)), "названия инструментов на экране");
+    await clickText(".ai-compose button", "Стоп");
+    await waitFor(`!!document.querySelector(".ai-compose button[type=submit]")`, "остановлено");
+    fake.mode = "cite";
+  });
+
   await check(`${label}: беседа переживает перезагрузку, «Новая беседа» — чистый лист`, async () => {
     const n = await js(`document.querySelectorAll(".ai-msg").length`);
     await go("/admin/assistant");
