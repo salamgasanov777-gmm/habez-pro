@@ -9,13 +9,16 @@ import UsersAdmin from "./UsersAdmin.jsx";
 import SettingsAdmin from "./SettingsAdmin.jsx";
 import AuditAdmin from "./AuditAdmin.jsx";
 import AiApp from "../ai/AiApp.jsx";
-import { Chart, Box, Cart, Phone, User, Settings, Doc, Back, Search } from "../components/Icons.jsx";
+import Assistant from "../ai/Assistant.jsx";
+import { Chart, Box, Cart, Phone, User, Settings, Doc, Back, Search, Spark } from "../components/Icons.jsx";
 
 const NAV = [
   { to: "/admin", end: true, label: "Сводка", icon: <Chart width={17} height={17} /> },
   { to: "/admin/products", label: "Товары и цены", icon: <Box width={17} height={17} /> },
   { to: "/admin/orders", label: "Заказы", icon: <Cart width={17} height={17} /> },
   { to: "/admin/leads", label: "Заявки", icon: <Phone width={17} height={17} /> },
+  // Habez AI появляется в меню, только когда раздел включён на сервере.
+  { to: "/admin/assistant", label: "Habez AI", icon: <Spark width={17} height={17} />, agent: true },
   { to: "/admin/ai", label: "База знаний AI", icon: <Search width={17} height={17} />, ai: true },
   { to: "/admin/users", label: "Пользователи", icon: <User width={17} height={17} />, admin: true },
   { to: "/admin/settings", label: "Настройки", icon: <Settings width={17} height={17} />, admin: true },
@@ -26,6 +29,7 @@ export default function AdminApp() {
   const { user, meta } = useApp();
   const isAdmin = ["admin", "owner"].includes(user.role);
   const aiEnabled = !!meta?.settings?.ai;
+  const agentEnabled = !!meta?.settings?.aiAgent;
 
   return (
     <div className="admin">
@@ -35,7 +39,7 @@ export default function AdminApp() {
           <span className="logo-text"><b>Панель</b><span>{meta?.tenant?.name?.split(" ")[0]}</span></span>
         </Link>
 
-        {NAV.filter((n) => (!n.admin || isAdmin) && (!n.ai || aiEnabled)).map((n) => (
+        {NAV.filter((n) => (!n.admin || isAdmin) && (!n.ai || aiEnabled) && (!n.agent || agentEnabled)).map((n) => (
           <NavLink key={n.to} to={n.to} end={n.end} className={({ isActive }) => (isActive ? "on" : "")}>
             {n.icon}{n.label}
           </NavLink>
@@ -58,6 +62,7 @@ export default function AdminApp() {
           <Route path="settings" element={<SettingsAdmin />} />
           <Route path="audit" element={<AuditAdmin />} />
           {aiEnabled && <Route path="ai/*" element={<AiApp />} />}
+          {agentEnabled && <Route path="assistant" element={<Assistant />} />}
         </Routes>
       </main>
     </div>

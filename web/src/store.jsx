@@ -105,6 +105,10 @@ export function AppProvider({ children }) {
     async logout() {
       await api.post("/api/auth/logout").catch(() => {});
       api.setToken(null);
+      // Беседы с Habez AI в этой вкладке — только владельцу сессии.
+      try {
+        for (const k of Object.keys(sessionStorage)) if (k.startsWith("habezpro.ai.chat")) sessionStorage.removeItem(k);
+      } catch { /* хранилище недоступно — и беречь нечего */ }
       setUser(null);
       setCart(await api.get("/api/cart").catch(() => ({ items: [], count: 0, subtotal: 0 })));
     },

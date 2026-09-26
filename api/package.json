@@ -20,7 +20,8 @@
     "ai:import-specs": "node src/ai/knowledge/import-specs.js",
     "ai:evidence-dry-run": "node src/ai/knowledge/reconcile-repair.js",
     "ai:reconcile-dry-run": "node src/ai/knowledge/reconcile-dry-run.js",
-    "ai:reconcile-repair": "node src/ai/knowledge/reconcile-repair.js"
+    "ai:reconcile-repair": "node src/ai/knowledge/reconcile-repair.js",
+    "ai:eval": "node src/ai/agent/eval/run-live.js"
   },
   "dependencies": {
     "@fastify/cookie": "^11.0.2",

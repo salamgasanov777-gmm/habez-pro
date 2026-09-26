@@ -59,6 +59,10 @@ export default async function catalogRoutes(app) {
         // Раздел «База знаний» в панели. На витрине ни на что не влияет —
         // панель по этому признаку решает, показывать ли пункт меню.
         ai: config.ai.enabled,
+        // Habez AI Agent: пункт «Habez AI» в панели (сотрудникам) и страница
+        // /ai на витрине (покупателям и гостям — только при AI_AGENT_PUBLIC).
+        aiAgent: config.ai.enabled && config.ai.agent.enabled,
+        aiAgentPublic: config.ai.enabled && config.ai.agent.enabled && config.ai.agent.public,
       },
       categories: categories.filter((c) => c.count > 0),
       tasks: TASKS,

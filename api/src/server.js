@@ -30,6 +30,7 @@ import pushRoutes from "./routes/push.js";
 import aiKnowledgeRoutes from "./ai/routes/knowledge.js";
 import aiProductRoutes from "./ai/routes/products.js";
 import aiEvidenceRoutes from "./ai/routes/evidence.js";
+import aiAgentRoutes from "./ai/agent/routes.js";
 import { openapi } from "./openapi.js";
 
 // Демо-пароли из README не должны работать на живом сервере. Если база
@@ -135,6 +136,8 @@ export async function build() {
     await app.register(aiKnowledgeRoutes);
     await app.register(aiProductRoutes);
     if (config.ai.evidence) await app.register(aiEvidenceRoutes);
+    // Habez AI Agent (Phase 3.1): только чтение слоя знаний.
+    if (config.ai.agent.enabled) await app.register(aiAgentRoutes);
   }
 
   // Одним процессом можно отдавать и собранный фронтенд — так проще

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Link, NavLink, useLocation, useNavigate } from "react-router-dom";
 import { useApp } from "../store.jsx";
 import { STANDALONE } from "../lib/api.js";
-import { Search, Cart, Star, Sun, Moon, User, Grid, Scale, Qr } from "./Icons.jsx";
+import { Search, Cart, Star, Sun, Moon, User, Grid, Scale, Qr, Spark } from "./Icons.jsx";
 import ShareDialog from "./ShareDialog.jsx";
 import LeadDialog from "./LeadDialog.jsx";
 
@@ -61,6 +61,9 @@ function Header() {
           {/* На узком экране эти же кнопки стоят в нижней панели — здесь их
               прячет CSS (.dup-tab), чтобы значки не дублировались. Наверху
               остаётся только смена темы: её в нижней панели нет. */}
+          {meta?.settings?.aiAgentPublic && (
+            <Link to="/ai" className="icon-btn dup-tab" aria-label="Habez AI"><Spark /></Link>
+          )}
           <Link to="/favorites" className="icon-btn dup-tab" aria-label="Избранное">
             <Star filled={false} />
             {favorites.size > 0 && <span className="counter">{favorites.size}</span>}
@@ -86,12 +89,14 @@ function Header() {
 }
 
 function TabBar() {
-  const { cart, favorites, user } = useApp();
+  const { cart, favorites, user, meta } = useApp();
   const tabs = [
     { to: "/", icon: <Grid width={21} height={21} />, label: "Каталог", end: true },
     { to: "/compare", icon: <Scale width={21} height={21} />, label: "Сравнить" },
     { to: "/favorites", icon: <Star width={21} height={21} />, label: "Избранное", badge: favorites.size },
     { to: "/cart", icon: <Cart width={21} height={21} />, label: "Корзина", badge: cart.count },
+    // Habez AI на витрине — только если завод включил его для покупателей.
+    ...(meta?.settings?.aiAgentPublic ? [{ to: "/ai", icon: <Spark width={21} height={21} />, label: "Habez AI" }] : []),
     { to: user ? "/account" : "/login", icon: <User width={21} height={21} />, label: user ? "Кабинет" : "Вход" },
   ].filter((t) => !STANDALONE || !t.to.startsWith("/login") && !t.to.startsWith("/account"));
   return (

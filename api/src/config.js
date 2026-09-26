@@ -105,6 +105,33 @@ export const config = {
   // (проекция наблюдений, те же поля + блок evidence). evidence действует,
   // только если AI_EVIDENCE_ENABLED=1; иначе — legacy.
   ai: {
+    // Habez AI Agent (Phase 3.1): чат по товарам на данных слоя знаний.
+    // Только чтение. Ключ провайдера — только из окружения, в коде и в
+    // репозитории его нет. provider: openrouter (по умолчанию, правило
+    // владельца: нейросеть — через OpenRouter), anthropic, mock (без сети —
+    // для тестов и проверки без ключа).
+    agent: {
+      enabled: bool(env.AI_AGENT_ENABLED, false),
+      // Покупатели и гости: только при AI_AGENT_PUBLIC=1 (каждый ответ стоит
+      // денег). Сотрудникам — всегда, когда агент включён.
+      public: bool(env.AI_AGENT_PUBLIC, false),
+      provider: (env.AI_PROVIDER || "openrouter").toLowerCase(),
+      model: env.AI_MODEL || "anthropic/claude-sonnet-5",
+      baseUrl: (env.AI_BASE_URL || "https://openrouter.ai/api").replace(/\/$/, ""),
+      apiKey: env.OPENROUTER_API_KEY || env.ANTHROPIC_API_KEY || "",
+      maxTokens: Number(env.AI_MAX_TOKENS || 4000),
+      timeoutMs: Number(env.AI_TIMEOUT_MS || 90000),
+      // Защита от расходов: вопросов за окно (сотрудник / гость и
+      // покупатель), одновременных ответов на одного человека, всего ответов
+      // гостям и покупателям за сутки (0 — без общего предела), длина
+      // истории беседы, которую сервер передаёт модели.
+      rateStaff: Number(env.AI_RATE_STAFF || 60),
+      ratePublic: Number(env.AI_RATE_PUBLIC || 12),
+      rateWindowMin: Number(env.AI_RATE_WINDOW_MIN || 10),
+      maxConcurrent: Number(env.AI_MAX_CONCURRENT || 2),
+      publicDailyMax: Number(env.AI_PUBLIC_DAILY_MAX || 300),
+      historyMaxChars: Number(env.AI_HISTORY_MAX_CHARS || 12000),
+    },
     enabled: bool(env.AI_ENABLED, false),
     evidence: bool(env.AI_EVIDENCE_ENABLED, false),
     readMode: bool(env.AI_EVIDENCE_ENABLED, false) && String(env.AI_EVIDENCE_READ_MODE || "legacy").toLowerCase() === "evidence" ? "evidence" : "legacy",

@@ -19,6 +19,19 @@ import LegalDoc from "./pages/LegalDoc.jsx";
 // Панель управления нужна нескольким сотрудникам, а грузится всеми. Выносим
 // её в отдельный чанк: покупатель на телефоне не скачивает админку.
 const Admin = lazy(() => import("./admin/AdminApp.jsx"));
+// Habez AI — тоже отдельным чанком: пока завод не включил его покупателям,
+// витрина его не загружает.
+const Assistant = lazy(() => import("./ai/Assistant.jsx"));
+
+function AiPage() {
+  const { meta, user, ready } = useApp();
+  const staff = user && ["manager", "admin", "owner"].includes(user.role);
+  if (!ready) return <div className="empty">Загрузка…</div>;
+  if (STANDALONE || !meta?.settings?.aiAgent || (!meta.settings.aiAgentPublic && !staff)) {
+    return <div className="empty"><h3>Habez AI пока недоступен</h3><p>Задайте вопрос менеджеру — телефон внизу страницы.</p></div>;
+  }
+  return <Suspense fallback={<div className="empty">Загрузка…</div>}><Assistant inStore /></Suspense>;
+}
 
 // Шторка — приём телефонный: на широком экране карточка остаётся обычной
 // страницей в две колонки, там прятать её за шторку незачем.
@@ -77,6 +90,7 @@ export default function App() {
               <Route path="/account" element={<Account />} />
               <Route path="/privacy" element={<Privacy />} />
               <Route path="/docs/:kind" element={<LegalDoc />} />
+              <Route path="/ai" element={<AiPage />} />
               <Route path="*" element={<div className="empty"><h3>Страница не найдена</h3><p>Проверьте адрес или вернитесь в каталог.</p></div>} />
             </Routes>
             {sheet && <ProductSheet slug={sheet} />}
