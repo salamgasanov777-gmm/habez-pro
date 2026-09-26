@@ -14,7 +14,8 @@ export const EVAL32_FILE = resolve(here, "../../../../test/fixtures/ai-eval-case
 export const loadEval32 = (file = EVAL32_FILE) => JSON.parse(readFileSync(file, "utf8"));
 export const EVAL33_FILE = resolve(here, "../../../../test/fixtures/ai-eval-cases-3-3.json");
 export const EVAL34_FILE = resolve(here, "../../../../test/fixtures/ai-eval-cases-3-4.json");
-export const evalFileForSet = (set) => ({ "3.3": EVAL33_FILE, "3.4": EVAL34_FILE })[set] || EVAL32_FILE;
+export const EVAL35_FILE = resolve(here, "../../../../test/fixtures/ai-eval-cases-3-5.json");
+export const evalFileForSet = (set) => ({ "3.3": EVAL33_FILE, "3.4": EVAL34_FILE, "3.5": EVAL35_FILE })[set] || EVAL32_FILE;
 
 const WINNER = /(правильн|верн|актуальн|точн)(ое|ым|ая) значени|устаревш|следует (использовать|ориентироваться)|технолог уточнил|ориентируйтесь на|(лучше|прочнее|надёжнее|надежнее) (по|чем)/i;
 
@@ -97,6 +98,22 @@ export function evaluateCase32(c, r, { slugOf = new Map(), live = false } = {}) 
   }
   if (ev.factory_group !== undefined) has(r.factory?.group === ev.factory_group, `группа ${r.factory?.group}, ожидалась ${ev.factory_group}`);
   if (ev.min_factory_items) has((r.factory?.items || []).length >= ev.min_factory_items, `товаров завода ${(r.factory?.items || []).length}`);
+  // 3.5: конкуренты. Путь в r.competitor («analog.status»), строки в нём,
+  // статусы аналогов по имени товара конкурента. Предположение никогда не
+  // помечено как подтверждённое.
+  const at = (obj, path) => path.split(".").reduce((o, k) => (o == null ? o : o[k]), obj);
+  for (const [path, want] of Object.entries(ev.competitor_path || {})) has(JSON.stringify(at(r.competitor, path)) === JSON.stringify(want), `competitor.${path}: ${JSON.stringify(at(r.competitor, path))}, ожидалось ${JSON.stringify(want)}`);
+  const compText = JSON.stringify(r.competitor || {});
+  for (const x of ev.competitor_includes || []) has(compText.includes(x), `в сведениях о конкурентах нет «${x}»`);
+  for (const [name, st] of Object.entries(ev.analogs || {})) {
+    const a = (r.competitor?.analogs || []).find((x) => String(x.competitorProduct || x.product).includes(name));
+    has(a && a.status === st, `аналог ${name}: ${a?.status ?? "нет"}, ожидалось ${st}`);
+  }
+  for (const [name, rel] of Object.entries(ev.analog_relations || {})) {
+    const a = (r.competitor?.analogs || []).find((x) => String(x.competitorProduct || x.product).includes(name));
+    has(a && a.relation === rel, `вид связи ${name}: ${a?.relation ?? "нет"}, ожидалось ${rel}`);
+  }
+  has(!(r.competitor?.analogs || []).some((x) => x.status !== "CONFIRMED" && x.confirmed === true), "предположение или спор помечены как подтверждённые");
   if (ev.profile_factory) has(r.profile?.factory?.status === ev.profile_factory, `в паспорте связь с заводом ${r.profile?.factory?.status}, ожидалось ${ev.profile_factory}`);
   for (const name of ev.citation_products || []) has((r.citations || []).some((c) => String(c.product || "").toUpperCase().includes(name)), `нет ссылки на данные «${name}»`);
   if (ev.only_disputed) has(props.every((p) => ["conflict", "unresolved"].includes(p.status) || p.hiddenDisagreement), "в ответе о расхождениях есть бесспорные свойства");
@@ -116,6 +133,7 @@ export function evaluateCase32(c, r, { slugOf = new Map(), live = false } = {}) 
   for (const [slug, st] of Object.entries(f.suitability_not || {})) has(!(r.suitability || []).some((x) => x.slug === slug && x.status === st), `у ${slug} запрещённый статус ${st}`);
   for (const [slug, st] of Object.entries(f.product_factory_not || {})) has(pf(slug)?.status !== st, `у ${slug} запрещённый статус связи ${st}`);
   for (const t of f.doc_types || []) has(!docs.some((d) => d.type === t), `лишний документ вида ${t}`);
+  for (const x of f.competitor_excludes || []) has(!compText.includes(x) && !text.includes(x) && !r.answer.includes(x), `запрещённое «${x}» в ответе или данных`);
   for (const slug of f.factory_items_excludes || []) has(!(r.factory?.items || []).some((x) => x.slug === slug), `в товарах завода лишний ${slug}`);
   for (const s of f.found_excludes || []) has(!r.found.map((id) => slugOf.get(id)).includes(s), `в подборе лишний ${s}`);
   if (f.model_call) has(r.model === null, "модель вызвана");
@@ -132,6 +150,7 @@ export function evaluateCase32(c, r, { slugOf = new Map(), live = false } = {}) 
     has(!(g.factoryMismatch || []).length, `завод назван изготовителем без основания: ${(g.factoryMismatch || []).join(", ")}`);
     has(!(g.inventedDocuments || []).length, `выдуманный документ: ${(g.inventedDocuments || []).join(", ")}`);
     has(!(g.unsupportedDates || []).length, `дата не из данных: ${(g.unsupportedDates || []).join(", ")}`);
+    for (const [k, v] of Object.entries(g.competitor || {})) has(!v.length, `конкуренты — ${k}: ${v.join(", ")}`);
     if (g.uncited.length) warn.push(`без ссылки: ${g.uncited.join(", ")}`);
     if (f.winner) has(!WINNER.test(r.answer), `выбран «победитель»: ${r.answer.match(WINNER)?.[0]}`);
   }

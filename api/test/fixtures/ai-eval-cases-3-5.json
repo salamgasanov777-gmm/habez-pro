@@ -1,0 +1,1199 @@
+{
+  "about": "Habez AI 3.5 Competitor Intelligence (roadmap: Phase 3 — Competitors) — детерминированные случаи. Только синтетические данные (test/helpers/competitor-fixture.js): ТестСмесь, Пример-Гипс, ДилерТест, Секрет-Групп, марки Марка-Т/U/П. Формат — как у ai-eval-cases-3-2.json; добавлены competitor_path, competitor_includes, analogs, analog_relations, competitor_excludes. Тест — ai-agent-3-5.test.js.",
+  "live": [],
+  "cases": [
+    {
+      "id": 1,
+      "group": "search",
+      "turns": [
+        "Что известно о ТестСмеси?"
+      ],
+      "expected_intent": "competitor_lookup",
+      "expected_entities": {},
+      "expected_tools": [],
+      "expected_evidence": {
+        "competitor_path": {
+          "company.name": "ТестСмесь"
+        }
+      },
+      "expected_behavior": {
+        "mode": "COMPETITOR_PROFILE",
+        "model": true,
+        "text": "Компания по падежной форме имени; карточка из справочника."
+      },
+      "forbidden_behavior": {}
+    },
+    {
+      "id": 2,
+      "group": "search",
+      "turns": [
+        "Кто такие Пример-Гипс?"
+      ],
+      "expected_intent": "competitor_lookup",
+      "expected_entities": {},
+      "expected_tools": [],
+      "expected_evidence": {
+        "competitor_path": {
+          "company.name": "Пример-Гипс"
+        }
+      },
+      "expected_behavior": {
+        "mode": "COMPETITOR_PROFILE",
+        "model": true,
+        "text": "Компания с дефисом в имени."
+      },
+      "forbidden_behavior": {}
+    },
+    {
+      "id": 3,
+      "group": "search",
+      "turns": [
+        "Что за марка Марка-U?"
+      ],
+      "expected_intent": "competitor_lookup",
+      "expected_entities": {},
+      "expected_tools": [],
+      "expected_evidence": {
+        "competitor_path": {
+          "company.name": "ТестСмесь"
+        },
+        "competitor_includes": [
+          "Марка-U"
+        ]
+      },
+      "expected_behavior": {
+        "mode": "COMPETITOR_PROFILE",
+        "model": true,
+        "text": "Марка — карточка компании-владельца с этой маркой."
+      },
+      "forbidden_behavior": {}
+    },
+    {
+      "id": 4,
+      "group": "search",
+      "turns": [
+        "Что известно о Т-Шов?"
+      ],
+      "expected_intent": "competitor_lookup",
+      "expected_entities": {
+        "products": []
+      },
+      "expected_tools": [],
+      "expected_evidence": {
+        "competitor_includes": [
+          "Т-Шов"
+        ]
+      },
+      "expected_behavior": {
+        "mode": "COMPETITOR_PROFILE",
+        "model": true,
+        "text": "Товар конкурента; ШОВ внутри «Т-Шов» — не наш товар."
+      },
+      "forbidden_behavior": {}
+    },
+    {
+      "id": 5,
+      "group": "search",
+      "turns": [
+        "Расскажи про ТестСмес"
+      ],
+      "expected_intent": "competitor_lookup",
+      "expected_entities": {},
+      "expected_tools": [],
+      "expected_evidence": {
+        "competitor_path": {
+          "company.name": "ТестСмесь"
+        }
+      },
+      "expected_behavior": {
+        "mode": "COMPETITOR_PROFILE",
+        "model": true,
+        "text": "Опечатка в пределах безопасного расстояния."
+      },
+      "forbidden_behavior": {}
+    },
+    {
+      "id": 6,
+      "group": "search",
+      "turns": [
+        "Какие конкуренты есть?"
+      ],
+      "expected_intent": "competitor_lookup",
+      "expected_entities": {},
+      "expected_tools": [],
+      "expected_evidence": {},
+      "expected_behavior": {
+        "mode": "COMPETITOR_PROFILE",
+        "model": false,
+        "text": "Список отмеченных конкурентов — без модели; конфиденциальная компания сотруднику не видна.",
+        "answer_includes": [
+          "ТестСмесь",
+          "Пример-Гипс"
+        ]
+      },
+      "forbidden_behavior": {
+        "competitor_excludes": [
+          "Секрет-Групп"
+        ]
+      }
+    },
+    {
+      "id": 7,
+      "group": "unknown",
+      "turns": [
+        "Что известно о конкуренте «Зета-Микс»?"
+      ],
+      "expected_intent": "competitor_lookup",
+      "expected_entities": {},
+      "expected_tools": [],
+      "expected_evidence": {},
+      "expected_behavior": {
+        "mode": "NOT_FOUND",
+        "model": false,
+        "text": "Неизвестный конкурент — без модели, не угадывать.",
+        "answer_includes": [
+          "Зета-Микс",
+          "ни в каталоге Habez, ни в справочнике конкурентов"
+        ]
+      },
+      "forbidden_behavior": {}
+    },
+    {
+      "id": 8,
+      "group": "unknown",
+      "turns": [
+        "Сравни ШОВ с «Т-Супер»"
+      ],
+      "expected_intent": "competitor_comparison",
+      "expected_entities": {
+        "products": [
+          "shov"
+        ]
+      },
+      "expected_tools": [],
+      "expected_evidence": {},
+      "expected_behavior": {
+        "mode": "NOT_FOUND",
+        "model": false,
+        "text": "Неизвестный товар конкурента — без модели.",
+        "answer_includes": [
+          "Т-Супер"
+        ]
+      },
+      "forbidden_behavior": {}
+    },
+    {
+      "id": 9,
+      "group": "products",
+      "turns": [
+        "Какие товары у ТестСмеси?"
+      ],
+      "expected_intent": "competitor_products",
+      "expected_entities": {},
+      "expected_tools": [],
+      "expected_evidence": {
+        "competitor_includes": [
+          "Т-Шов",
+          "U-Шов",
+          "Т-Старт",
+          "Т-Грунт"
+        ]
+      },
+      "expected_behavior": {
+        "mode": "COMPETITOR_PRODUCTS",
+        "model": true,
+        "text": "Все товары компании."
+      },
+      "forbidden_behavior": {
+        "competitor_excludes": [
+          "П-Финиш"
+        ]
+      }
+    },
+    {
+      "id": 10,
+      "group": "products",
+      "turns": [
+        "Какие товары марки Марка-U?"
+      ],
+      "expected_intent": "competitor_products",
+      "expected_entities": {},
+      "expected_tools": [],
+      "expected_evidence": {
+        "competitor_includes": [
+          "U-Шов"
+        ]
+      },
+      "expected_behavior": {
+        "mode": "COMPETITOR_PRODUCTS",
+        "model": true,
+        "text": "Только марка U — не вся компания."
+      },
+      "forbidden_behavior": {
+        "competitor_excludes": [
+          "Т-Шов",
+          "Т-Старт"
+        ]
+      }
+    },
+    {
+      "id": 11,
+      "group": "products",
+      "turns": [
+        "Какие шпаклёвки у ТестСмеси?"
+      ],
+      "expected_intent": "competitor_products",
+      "expected_entities": {},
+      "expected_tools": [],
+      "expected_evidence": {
+        "competitor_includes": [
+          "Т-Шов",
+          "U-Шов"
+        ]
+      },
+      "expected_behavior": {
+        "mode": "COMPETITOR_PRODUCTS",
+        "model": true,
+        "text": "Наш раздел каталога как фильтр."
+      },
+      "forbidden_behavior": {
+        "competitor_excludes": [
+          "Т-Старт",
+          "Т-Грунт"
+        ]
+      }
+    },
+    {
+      "id": 12,
+      "group": "products",
+      "turns": [
+        "Какие краски у Пример-Гипс?"
+      ],
+      "expected_intent": "competitor_products",
+      "expected_entities": {},
+      "expected_tools": [],
+      "expected_evidence": {},
+      "expected_behavior": {
+        "mode": "COMPETITOR_PRODUCTS",
+        "model": false,
+        "text": "Нет товаров группы — без модели, отсутствие записи ≠ «не выпускает».",
+        "answer_includes": [
+          "нет товаров"
+        ]
+      },
+      "forbidden_behavior": {}
+    },
+    {
+      "id": 13,
+      "group": "analogs",
+      "turns": [
+        "Какие аналоги у ШОВ?"
+      ],
+      "expected_intent": "analog_lookup",
+      "expected_entities": {
+        "products": [
+          "shov"
+        ]
+      },
+      "expected_tools": [],
+      "expected_evidence": {
+        "analogs": {
+          "Т-Шов": "CONFIRMED",
+          "U-Шов": "INFERRED",
+          "П-Финиш": "INFERRED"
+        }
+      },
+      "expected_behavior": {
+        "mode": "ANALOGS",
+        "model": true,
+        "text": "Подтверждённый по источнику, отдельно предположения."
+      },
+      "forbidden_behavior": {
+        "competitor_excludes": [
+          "С-Смесь"
+        ]
+      }
+    },
+    {
+      "id": 14,
+      "group": "analogs",
+      "turns": [
+        "Какие аналоги у АКВАЛАЙТ?"
+      ],
+      "expected_intent": "analog_lookup",
+      "expected_entities": {
+        "products": [
+          "akvalayt"
+        ]
+      },
+      "expected_tools": [],
+      "expected_evidence": {
+        "analogs": {
+          "U-Шов": "CONFIRMED"
+        },
+        "competitor_includes": [
+          "employee_decision"
+        ]
+      },
+      "expected_behavior": {
+        "mode": "ANALOGS",
+        "model": true,
+        "text": "Аналог по решению сотрудника."
+      },
+      "forbidden_behavior": {}
+    },
+    {
+      "id": 15,
+      "group": "analogs",
+      "turns": [
+        "Есть ли аналог у АНТИПЛЕСЕНЬ?"
+      ],
+      "expected_intent": "analog_lookup",
+      "expected_entities": {
+        "products": [
+          "antipleseni"
+        ]
+      },
+      "expected_tools": [],
+      "expected_evidence": {
+        "analogs": {
+          "Т-Грунт": "CONFIRMED"
+        },
+        "analog_relations": {
+          "Т-Грунт": "partial_analog"
+        },
+        "values": [
+          "различия"
+        ]
+      },
+      "expected_behavior": {
+        "mode": "ANALOGS",
+        "model": true,
+        "text": "Частичный аналог с различиями."
+      },
+      "forbidden_behavior": {}
+    },
+    {
+      "id": 16,
+      "group": "analogs",
+      "turns": [
+        "Какие аналоги у КОРОЕД?"
+      ],
+      "expected_intent": "analog_lookup",
+      "expected_entities": {
+        "products": [
+          "koroed"
+        ]
+      },
+      "expected_tools": [],
+      "expected_evidence": {
+        "analogs": {
+          "Т-Старт": "CONFIRMED"
+        },
+        "analog_relations": {
+          "Т-Старт": "not_analog"
+        }
+      },
+      "expected_behavior": {
+        "mode": "ANALOGS",
+        "model": true,
+        "text": "«Не аналог» — тоже утверждение; confirmed: false."
+      },
+      "forbidden_behavior": {}
+    },
+    {
+      "id": 17,
+      "group": "analogs",
+      "turns": [
+        "Какие аналоги у СТАНДАРТ?"
+      ],
+      "expected_intent": "analog_lookup",
+      "expected_entities": {
+        "products": [
+          "standart"
+        ]
+      },
+      "expected_tools": [],
+      "expected_evidence": {
+        "analogs": {
+          "П-Клей": "CONFLICTED"
+        }
+      },
+      "expected_behavior": {
+        "mode": "ANALOGS",
+        "model": true,
+        "text": "Источник говорит «аналог», сотрудник — «не аналог»: противоречие."
+      },
+      "forbidden_behavior": {}
+    },
+    {
+      "id": 18,
+      "group": "analogs",
+      "turns": [
+        "Какие аналоги у ЖАКО?"
+      ],
+      "expected_intent": "analog_lookup",
+      "expected_entities": {
+        "products": [
+          "zhako"
+        ]
+      },
+      "expected_tools": [],
+      "expected_evidence": {
+        "analogs": {
+          "Т-Шов": "INFERRED"
+        }
+      },
+      "expected_behavior": {
+        "mode": "ANALOGS",
+        "model": true,
+        "text": "Только предположения по разделу; ни одного подтверждённого."
+      },
+      "forbidden_behavior": {}
+    },
+    {
+      "id": 19,
+      "group": "analogs",
+      "turns": [
+        "Какие аналоги у ГКЛ?"
+      ],
+      "expected_intent": "analog_lookup",
+      "expected_entities": {
+        "products": [
+          "gkl"
+        ]
+      },
+      "expected_tools": [],
+      "expected_evidence": {},
+      "expected_behavior": {
+        "mode": "ANALOGS",
+        "model": false,
+        "text": "Нет ни утверждений, ни предположений — без модели.",
+        "answer_includes": [
+          "нет товаров конкурентов"
+        ]
+      },
+      "forbidden_behavior": {}
+    },
+    {
+      "id": 20,
+      "group": "analogs",
+      "turns": [
+        "Какой товар Habez — аналог Т-Шов?"
+      ],
+      "expected_intent": "analog_lookup",
+      "expected_entities": {
+        "products": []
+      },
+      "expected_tools": [],
+      "expected_evidence": {
+        "competitor_includes": [
+          "ШОВ",
+          "CONFIRMED"
+        ]
+      },
+      "expected_behavior": {
+        "mode": "ANALOGS",
+        "model": true,
+        "text": "Обратный вопрос: наш товар для товара конкурента."
+      },
+      "forbidden_behavior": {}
+    },
+    {
+      "id": 21,
+      "group": "comparison",
+      "turns": [
+        "Сравни ШОВ с Т-Шовом"
+      ],
+      "expected_intent": "competitor_comparison",
+      "expected_entities": {
+        "products": [
+          "shov"
+        ]
+      },
+      "expected_tools": [],
+      "expected_evidence": {
+        "competitor_path": {
+          "analog.status": "CONFIRMED",
+          "prices": 3
+        },
+        "comparison_rows": [
+          "Прочность сцепления (адгезия)",
+          "Время схватывания"
+        ],
+        "missing_cells": true,
+        "values": [
+          "ЦЕНЫ"
+        ]
+      },
+      "expected_behavior": {
+        "mode": "COMPETITOR_COMPARISON",
+        "model": true,
+        "text": "Таблица «наш ↔ их», аналог подтверждён, цены отдельно."
+      },
+      "forbidden_behavior": {}
+    },
+    {
+      "id": 22,
+      "group": "comparison",
+      "turns": [
+        "Сравни ШОВ с товаром ТестСмесь"
+      ],
+      "expected_intent": "competitor_comparison",
+      "expected_entities": {
+        "products": [
+          "shov"
+        ]
+      },
+      "expected_tools": [],
+      "expected_evidence": {
+        "competitor_includes": [
+          "Т-Шов"
+        ]
+      },
+      "expected_behavior": {
+        "mode": "COMPETITOR_COMPARISON",
+        "model": true,
+        "text": "Компания названа — берётся единственный подтверждённый аналог."
+      },
+      "forbidden_behavior": {}
+    },
+    {
+      "id": 23,
+      "group": "comparison",
+      "turns": [
+        "Сравни ЖАКО с товаром ТестСмесь"
+      ],
+      "expected_intent": "competitor_comparison",
+      "expected_entities": {
+        "products": [
+          "zhako"
+        ]
+      },
+      "expected_tools": [],
+      "expected_evidence": {},
+      "expected_behavior": {
+        "mode": "CLARIFICATION",
+        "model": false,
+        "text": "Два предположения — уточнить, не выбирать.",
+        "answer_includes": [
+          "С каким товаром сравнить"
+        ]
+      },
+      "forbidden_behavior": {}
+    },
+    {
+      "id": 24,
+      "group": "comparison",
+      "turns": [
+        "Сравни ГКЛ с товаром Пример-Гипс"
+      ],
+      "expected_intent": "competitor_comparison",
+      "expected_entities": {
+        "products": [
+          "gkl"
+        ]
+      },
+      "expected_tools": [],
+      "expected_evidence": {},
+      "expected_behavior": {
+        "mode": "COMPETITOR_COMPARISON",
+        "model": false,
+        "text": "Нет сопоставленного товара — без модели.",
+        "answer_includes": [
+          "нет товара, сопоставленного"
+        ]
+      },
+      "forbidden_behavior": {}
+    },
+    {
+      "id": 25,
+      "group": "comparison",
+      "turns": [
+        "Сравни АНТИПЛЕСЕНЬ с Т-Грунтом"
+      ],
+      "expected_intent": "competitor_comparison",
+      "expected_entities": {
+        "products": [
+          "antipleseni"
+        ]
+      },
+      "expected_tools": [],
+      "expected_evidence": {
+        "values": [
+          "0,15 л/м²",
+          "200 г/м²"
+        ],
+        "competitor_path": {
+          "analog.relation": "partial_analog"
+        }
+      },
+      "expected_behavior": {
+        "mode": "COMPETITOR_COMPARISON",
+        "model": true,
+        "text": "Разные единицы (г/м² и л/м²) — рядом, без пересчёта; частичный аналог."
+      },
+      "forbidden_behavior": {}
+    },
+    {
+      "id": 26,
+      "group": "comparison",
+      "turns": [
+        "Сравни ШОВ с П-Финишем"
+      ],
+      "expected_intent": "competitor_comparison",
+      "expected_entities": {
+        "products": [
+          "shov"
+        ]
+      },
+      "expected_tools": [],
+      "expected_evidence": {},
+      "expected_behavior": {
+        "mode": "COMPETITOR_COMPARISON",
+        "model": false,
+        "text": "У товара конкурента нет данных — сравнивать нечего, «нет данных» ≠ «хуже».",
+        "answer_includes": [
+          "нет ни характеристик, ни цен"
+        ]
+      },
+      "forbidden_behavior": {}
+    },
+    {
+      "id": 27,
+      "group": "comparison",
+      "turns": [
+        "Сравни ШОВ с U-Шовом"
+      ],
+      "expected_intent": "competitor_comparison",
+      "expected_entities": {
+        "products": [
+          "shov"
+        ]
+      },
+      "expected_tools": [],
+      "expected_evidence": {
+        "values": [
+          "0,4 МПа",
+          "нет данных"
+        ],
+        "competitor_path": {
+          "analog.status": "INFERRED"
+        }
+      },
+      "expected_behavior": {
+        "mode": "COMPETITOR_COMPARISON",
+        "model": true,
+        "text": "Характеристики только у одной стороны — «нет данных»; предположение об аналоге."
+      },
+      "forbidden_behavior": {}
+    },
+    {
+      "id": 28,
+      "group": "price",
+      "turns": [
+        "Сколько стоит Т-Шов?"
+      ],
+      "expected_intent": "competitor_price",
+      "expected_entities": {},
+      "expected_tools": [],
+      "expected_evidence": {
+        "values": [
+          "450,00 ₽",
+          "470,00 ₽",
+          "18,00 ₽",
+          "за кг"
+        ]
+      },
+      "expected_behavior": {
+        "mode": "COMPETITOR_PRICE",
+        "model": true,
+        "text": "Цены группами: за мешок и за кг — отдельно; дилерская конфиденциальная скрыта."
+      },
+      "forbidden_behavior": {
+        "context_excludes": [
+          "390,00 ₽"
+        ]
+      }
+    },
+    {
+      "id": 29,
+      "group": "price",
+      "turns": [
+        "Сколько стоит Т-Шов?"
+      ],
+      "expected_intent": "competitor_price",
+      "expected_entities": {},
+      "expected_tools": [],
+      "expected_evidence": {
+        "values": [
+          "390,00 ₽"
+        ]
+      },
+      "expected_behavior": {
+        "mode": "COMPETITOR_PRICE",
+        "model": true,
+        "text": "Администратор видит конфиденциальную дилерскую цену."
+      },
+      "forbidden_behavior": {},
+      "scope": "admin"
+    },
+    {
+      "id": 30,
+      "group": "price",
+      "turns": [
+        "Какая цена у Т-Шов в разные даты?"
+      ],
+      "expected_intent": "competitor_price",
+      "expected_entities": {},
+      "expected_tools": [],
+      "expected_evidence": {
+        "values": [
+          "2026-08-01",
+          "2026-09-01",
+          "действующая цена не выбирается"
+        ]
+      },
+      "expected_behavior": {
+        "mode": "COMPETITOR_PRICE",
+        "model": true,
+        "text": "Разные даты — все, действующая не выбирается."
+      },
+      "forbidden_behavior": {}
+    },
+    {
+      "id": 31,
+      "group": "price",
+      "turns": [
+        "Какая цена у П-Финиш?"
+      ],
+      "expected_intent": "competitor_price",
+      "expected_entities": {},
+      "expected_tools": [],
+      "expected_evidence": {},
+      "expected_behavior": {
+        "mode": "COMPETITOR_PRICE",
+        "model": false,
+        "text": "Цен нет — без модели, цену не называть.",
+        "answer_includes": [
+          "нет"
+        ]
+      },
+      "forbidden_behavior": {}
+    },
+    {
+      "id": 32,
+      "group": "price",
+      "turns": [
+        "Какие цены у Марки-U?"
+      ],
+      "expected_intent": "competitor_price",
+      "expected_entities": {},
+      "expected_tools": [],
+      "expected_evidence": {
+        "values": [
+          "420,00 ₽"
+        ]
+      },
+      "expected_behavior": {
+        "mode": "COMPETITOR_PRICE",
+        "model": true,
+        "text": "Цены товаров марки."
+      },
+      "forbidden_behavior": {}
+    },
+    {
+      "id": 33,
+      "group": "rights",
+      "turns": [
+        "Какие аналоги у ШОВ у конкурентов?"
+      ],
+      "expected_intent": "competitor_lookup",
+      "expected_entities": {},
+      "expected_tools": [],
+      "expected_evidence": {},
+      "expected_behavior": {
+        "mode": "COMPETITOR_FORBIDDEN",
+        "model": false,
+        "text": "Гость — только «доступно сотрудникам».",
+        "answer_includes": [
+          "доступны только сотрудникам"
+        ]
+      },
+      "forbidden_behavior": {
+        "context_excludes": [
+          "Т-Шов"
+        ],
+        "competitor_excludes": [
+          "Т-Шов"
+        ]
+      },
+      "scope": "public"
+    },
+    {
+      "id": 34,
+      "group": "rights",
+      "turns": [
+        "Кто ваши конкуренты?"
+      ],
+      "expected_intent": "competitor_lookup",
+      "expected_entities": {},
+      "expected_tools": [],
+      "expected_evidence": {},
+      "expected_behavior": {
+        "mode": "COMPETITOR_FORBIDDEN",
+        "model": false,
+        "text": "Гость — без списка компаний.",
+        "answer_includes": [
+          "доступны только сотрудникам"
+        ]
+      },
+      "forbidden_behavior": {
+        "competitor_excludes": [
+          "ТестСмесь"
+        ]
+      },
+      "scope": "public"
+    },
+    {
+      "id": 35,
+      "group": "rights",
+      "turns": [
+        "Какие аналоги у ШОВ?"
+      ],
+      "expected_intent": "analog_lookup",
+      "expected_entities": {
+        "products": [
+          "shov"
+        ]
+      },
+      "expected_tools": [],
+      "expected_evidence": {
+        "analogs": {
+          "С-Смесь": "CONFIRMED",
+          "Т-Шов": "CONFIRMED"
+        }
+      },
+      "expected_behavior": {
+        "mode": "ANALOGS",
+        "model": true,
+        "text": "Администратор видит конфиденциальный аналог."
+      },
+      "forbidden_behavior": {},
+      "scope": "admin"
+    },
+    {
+      "id": 36,
+      "group": "rights",
+      "turns": [
+        "Сравни ШОВ с Т-Шовом"
+      ],
+      "expected_intent": "competitor_comparison",
+      "expected_entities": {
+        "products": [
+          "shov"
+        ]
+      },
+      "expected_tools": [],
+      "expected_evidence": {},
+      "expected_behavior": {
+        "mode": "COMPETITOR_COMPARISON",
+        "model": true,
+        "text": "Сотрудник: конфиденциальной дилерской цены нет."
+      },
+      "forbidden_behavior": {
+        "context_excludes": [
+          "390,00 ₽"
+        ]
+      }
+    },
+    {
+      "id": 37,
+      "group": "isolation",
+      "turns": [
+        "Что известно о конкуренте ЧужаяСмесь?"
+      ],
+      "expected_intent": "competitor_lookup",
+      "expected_entities": {},
+      "expected_tools": [],
+      "expected_evidence": {},
+      "expected_behavior": {
+        "mode": "COMPETITOR_PROFILE",
+        "model": false,
+        "text": "Конкурент другой компании-арендатора не находится."
+      },
+      "forbidden_behavior": {
+        "competitor_excludes": [
+          "Ч-Шов"
+        ],
+        "context_excludes": [
+          "Ч-Шов"
+        ]
+      }
+    },
+    {
+      "id": 38,
+      "group": "multi_turn",
+      "turns": [
+        "Сравни ШОВ с товаром ТестСмесь",
+        "А цена?"
+      ],
+      "expected_intent": "competitor_price",
+      "expected_entities": {},
+      "expected_tools": [],
+      "expected_evidence": {
+        "competitor_includes": [
+          "Т-Шов"
+        ],
+        "values": [
+          "450,00 ₽"
+        ]
+      },
+      "expected_behavior": {
+        "mode": "COMPETITOR_PRICE",
+        "model": true,
+        "text": "«А цена?» — о Т-Шов из беседы."
+      },
+      "forbidden_behavior": {}
+    },
+    {
+      "id": 39,
+      "group": "multi_turn",
+      "turns": [
+        "Сравни ШОВ с товаром ТестСмесь",
+        "А цена?",
+        "А у другой их марки?"
+      ],
+      "expected_intent": "competitor_price",
+      "expected_entities": {},
+      "expected_tools": [],
+      "expected_evidence": {
+        "competitor_includes": [
+          "U-Шов"
+        ],
+        "values": [
+          "420,00 ₽"
+        ]
+      },
+      "expected_behavior": {
+        "mode": "COMPETITOR_PRICE",
+        "model": true,
+        "text": "Другая марка той же компании — U-Шов."
+      },
+      "forbidden_behavior": {
+        "competitor_excludes": [
+          "Т-Шов"
+        ]
+      }
+    },
+    {
+      "id": 40,
+      "group": "multi_turn",
+      "turns": [
+        "Сравни ШОВ с товаром ТестСмесь",
+        "А цена?",
+        "А у другой их марки?",
+        "Есть ли у ШОВ ещё аналоги?"
+      ],
+      "expected_intent": "analog_lookup",
+      "expected_entities": {
+        "products": [
+          "shov"
+        ]
+      },
+      "expected_tools": [],
+      "expected_evidence": {
+        "analogs": {
+          "Т-Шов": "CONFIRMED",
+          "U-Шов": "INFERRED"
+        }
+      },
+      "expected_behavior": {
+        "mode": "ANALOGS",
+        "model": true,
+        "text": "Аналоги ШОВ после цен."
+      },
+      "forbidden_behavior": {}
+    },
+    {
+      "id": 41,
+      "group": "multi_turn",
+      "turns": [
+        "Какие аналоги у ШОВ?",
+        "Сравни с Т-Шовом"
+      ],
+      "expected_intent": "competitor_comparison",
+      "expected_entities": {
+        "products": [
+          "shov"
+        ]
+      },
+      "expected_tools": [],
+      "expected_evidence": {
+        "competitor_path": {
+          "analog.status": "CONFIRMED"
+        }
+      },
+      "expected_behavior": {
+        "mode": "COMPETITOR_COMPARISON",
+        "model": true,
+        "text": "Наш товар — из беседы."
+      },
+      "forbidden_behavior": {}
+    },
+    {
+      "id": 42,
+      "group": "regression",
+      "turns": [
+        "Где производится ШОВ?"
+      ],
+      "expected_intent": "product_factory",
+      "expected_entities": {
+        "products": [
+          "shov"
+        ]
+      },
+      "expected_tools": [],
+      "expected_evidence": {
+        "product_factory": {
+          "shov": "INFERRED"
+        }
+      },
+      "expected_behavior": {
+        "mode": "PRODUCT_FACTORY",
+        "model": true,
+        "text": "3.4 не перехвачен."
+      },
+      "forbidden_behavior": {}
+    },
+    {
+      "id": 43,
+      "group": "regression",
+      "turns": [
+        "Что использовать для швов ГКЛ?"
+      ],
+      "expected_intent": "application",
+      "expected_entities": {},
+      "expected_tools": [],
+      "expected_evidence": {
+        "suitability": {
+          "shov": "SUPPORTED"
+        }
+      },
+      "expected_behavior": {
+        "mode": "PRODUCT_SELECTION",
+        "model": true,
+        "text": "3.3 не перехвачен."
+      },
+      "forbidden_behavior": {}
+    },
+    {
+      "id": 44,
+      "group": "regression",
+      "turns": [
+        "Расскажи про ШОВ"
+      ],
+      "expected_intent": "product_lookup",
+      "expected_entities": {
+        "products": [
+          "shov"
+        ]
+      },
+      "expected_tools": [],
+      "expected_evidence": {},
+      "expected_behavior": {
+        "mode": "PRODUCT_PROFILE",
+        "model": true,
+        "text": "3.3 паспорт."
+      },
+      "forbidden_behavior": {}
+    },
+    {
+      "id": 45,
+      "group": "regression",
+      "turns": [
+        "Что производит завод Зетагипс?"
+      ],
+      "expected_intent": "factory_products",
+      "expected_entities": {},
+      "expected_tools": [],
+      "expected_evidence": {},
+      "expected_behavior": {
+        "mode": "NOT_FOUND",
+        "model": false,
+        "text": "3.4: неизвестного завода нет — и в справочнике конкурентов его нет.",
+        "answer_includes": [
+          "Зетагипс"
+        ]
+      },
+      "forbidden_behavior": {}
+    },
+    {
+      "id": 46,
+      "group": "regression",
+      "turns": [
+        "Сравни ШОВ и Стандарт"
+      ],
+      "expected_intent": "comparison",
+      "expected_entities": {
+        "products": [
+          "shov",
+          "standart"
+        ]
+      },
+      "expected_tools": [],
+      "expected_evidence": {},
+      "expected_behavior": {
+        "mode": "COMPARISON",
+        "model": true,
+        "text": "3.2: наши товары, не конкуренты."
+      },
+      "forbidden_behavior": {}
+    },
+    {
+      "id": 47,
+      "group": "precedence",
+      "turns": [
+        "Что производит ТестСмесь?"
+      ],
+      "expected_intent": "competitor_products",
+      "expected_entities": {},
+      "expected_tools": [],
+      "expected_evidence": {
+        "competitor_includes": [
+          "Т-Шов"
+        ]
+      },
+      "expected_behavior": {
+        "mode": "COMPETITOR_PRODUCTS",
+        "model": true,
+        "text": "Имя конкурента раньше правила 3.4 «завода нет»."
+      },
+      "forbidden_behavior": {}
+    },
+    {
+      "id": 48,
+      "group": "precedence",
+      "turns": [
+        "Кто производит Т-Шов?"
+      ],
+      "expected_intent": "competitor_lookup",
+      "expected_entities": {
+        "products": []
+      },
+      "expected_tools": [],
+      "expected_evidence": {
+        "competitor_includes": [
+          "Т-Шов"
+        ]
+      },
+      "expected_behavior": {
+        "mode": "COMPETITOR_PROFILE",
+        "model": true,
+        "text": "Товар конкурента, а не «где производится ШОВ»."
+      },
+      "forbidden_behavior": {}
+    }
+  ],
+  "live_extra": []
+}
