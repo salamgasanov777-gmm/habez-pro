@@ -294,6 +294,43 @@ for (const [label, w, h, mobile] of [["desktop", 1280, 900, false], ["mobile-375
     fake.mode = "cite";
   });
 
+  await check(`${label}: 3.3 — паспорт, подбор с карточками пригодности, применение, сравнение по задаче`, async () => {
+    await clickText("button", "Новая беседа");
+    fake.mode = "cite";
+    await ask("Расскажи про ШОВ");
+    await idle();
+    assert(await js(`${lastBot}.dataset.mode === "PRODUCT_PROFILE"`), "режим паспорта");
+    assert(await noHorizontalScroll(), "паспорт шире экрана");
+    await ask("Что использовать для швов ГКЛ?");
+    await idle();
+    assert(await js(`${lastBot}.dataset.mode === "PRODUCT_SELECTION"`), "режим подбора");
+    await waitFor(`${lastBot}.querySelectorAll(".ai-suit-card").length > 0`, "карточки пригодности");
+    assert(await js(`[...${lastBot}.querySelectorAll(".ai-suit-card")].some((c) => c.dataset.status === "SUPPORTED" && c.textContent.includes("ШОВ"))`), "ШОВ — подтверждено данными");
+    assert(await js(`!/лучш/i.test(${lastBot}.querySelector(".ai-suit").textContent)`), "в карточках нет «лучший»");
+    if (await js(`[...${lastBot}.querySelectorAll(".ai-suit button")].some((b) => b.textContent.startsWith("Ещё"))`)) {
+      const n = await js(`${lastBot}.querySelectorAll(".ai-suit-card").length`);
+      await js(`[...${lastBot}.querySelectorAll(".ai-suit button")].find((b) => b.textContent.startsWith("Ещё")).click()`);
+      await waitFor(`${lastBot}.querySelectorAll(".ai-suit-card").length > ${n}`, "«Ещё» раскрывает карточки");
+    }
+    const ref = await js(`${lastBot}.querySelector(".ai-suit-card .ai-ref")?.textContent || ""`);
+    if (ref) {
+      await js(`${lastBot}.querySelector(".ai-suit-card .ai-ref").click()`);
+      await waitFor(`${lastBot}.querySelector(".ai-source.on .ai-ref")?.textContent === ${JSON.stringify(ref)}`, "номер в карточке ведёт к источнику");
+    }
+    assert(await noHorizontalScroll(), "карточки шире экрана");
+    await js(`${lastBot}.scrollIntoView({ block: "start" }), true`); await sleep(300);
+    await shot(`${label}-10-selection`);
+    await ask("Как применять КОРОЕД?");
+    await idle();
+    assert(await js(`${lastBot}.dataset.mode === "PRODUCT_APPLICATION" && ${lastBot}.textContent.includes("В данных Habez нет: расход")`), "применение и «чего нет»");
+    await ask("Сравни ШОВ и Стандарт для ГКЛ");
+    await idle();
+    assert(await js(`${lastBot}.dataset.mode === "COMPARISON" && !!${lastBot}.querySelector(".ai-compare table") && ${lastBot}.querySelectorAll(".ai-suit-card").length === 2`), "таблица и две карточки пригодности");
+    assert(await noHorizontalScroll(), "сравнение шире экрана");
+    await js(`${lastBot}.scrollIntoView({ block: "start" }), true`); await sleep(300);
+    await shot(`${label}-11-compare-task`);
+  });
+
   await check(`${label}: беседа переживает перезагрузку, «Новая беседа» — чистый лист`, async () => {
     const n = await js(`document.querySelectorAll(".ai-msg").length`);
     await go("/admin/assistant");

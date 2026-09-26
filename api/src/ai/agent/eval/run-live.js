@@ -17,7 +17,7 @@ import { db, all } from "../../../db/index.js";
 import { getProvider } from "../provider/index.js";
 import { runAgent } from "../runtime/agent.js";
 import { loadEvalCases, evaluateCase } from "./grounding-eval.js";
-import { loadEval32, runConversation, evaluateCase32 } from "./eval-3-2.js";
+import { loadEval32, runConversation, evaluateCase32, EVAL33_FILE } from "./eval-3-2.js";
 
 const arg = (name, d = null) => {
   const i = process.argv.indexOf(`--${name}`);
@@ -48,8 +48,8 @@ console.log(`Habez AI eval · ${provider.name} ${provider.model} · уровен
 console.log(`отпечаток базы до: ${before}\n`);
 
 const results = [];
-if (set === "3.2") {
-  const data = loadEval32();
+if (set === "3.2" || set === "3.3") {
+  const data = set === "3.3" ? loadEval32(EVAL33_FILE) : loadEval32();
   const pick = only || new Set(data.live);
   for (const c of [...data.cases, ...(data.live_extra || [])]) {
     if (!pick.has(c.id)) continue;
@@ -84,6 +84,7 @@ const summary = {
   latencyMs: {
     retrieval: { median: med(results.map((r) => r.timings.retrievalMs)), max: Math.max(...results.map((r) => r.timings.retrievalMs)) },
     context: { median: med(results.map((r) => r.timings.contextMs)), max: Math.max(...results.map((r) => r.timings.contextMs)) },
+    intel: { median: med(results.map((r) => r.metrics?.intel_ms ?? 0)), max: Math.max(...results.map((r) => r.metrics?.intel_ms ?? 0)) },
     firstToken: { median: med(llm.map((r) => r.timings.llmFirstTokenMs)), max: Math.max(...llm.map((r) => r.timings.llmFirstTokenMs)) },
     llm: { median: med(llm.map((r) => r.timings.llmMs)), max: Math.max(...llm.map((r) => r.timings.llmMs)) },
     total: { median: med(results.map((r) => r.timings.totalMs)), max: Math.max(...results.map((r) => r.timings.totalMs)) },

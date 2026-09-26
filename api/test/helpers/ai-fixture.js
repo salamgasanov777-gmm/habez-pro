@@ -54,5 +54,9 @@ export async function prepareAiDb({ demo = false } = {}) {
   // на сжатие): гость и сотрудник видят только факт, администратор — всё.
   ev.createObservation(1, { productId: ids.koroed, specKey: "compressive_strength", originalValue: "не менее 9 МПа", sourceType: "measurement",
     sourceReference: "lab-koroed-9", accessLevel: "confidential" }, null);
+  // Конфиденциальное «для фасада ДА» у ШОВ против карточки «НЕТ»: подбор
+  // гостю и сотруднику не должен из-за него менять оценку (Phase 3.3).
+  ev.createObservation(1, { productId: ids.shov, specKey: "suitable_facade", originalValue: "ДА", sourceType: "measurement",
+    sourceReference: "lab-shov-facade", accessLevel: "confidential" }, null);
   return ids;
 }

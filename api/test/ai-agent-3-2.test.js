@@ -31,7 +31,7 @@ before(async () => {
   ctxmod = await import("../src/ai/agent/runtime/context.js");
   evalmod = await import("../src/ai/agent/eval/eval-3-2.js");
   slugOf = new Map(all("SELECT id, slug FROM products").map((r) => [r.id, r.slug]));
-  catalog = all("SELECT id, slug, name, short_name, summary, sections, spec_tables FROM products");
+  catalog = all("SELECT p.id, p.slug, p.name, p.short_name, p.summary, p.sections, p.spec_tables, c.name AS category FROM products p LEFT JOIN categories c ON c.id=p.category_id");
 });
 
 const ask = (question, extra = {}) => agent.runAgent({ tenantId: 1, scope: "staff", question, provider: mock, ...extra });
@@ -121,7 +121,7 @@ describe("маршрут и состояние беседы", () => {
     assert.deepEqual([r.products.map((p) => p.slug), r.specs.from], [["standart"], "state"]);
     r = step("Сравни их");
     assert.deepEqual([r.intent, r.products.map((p) => p.slug)], ["comparison", ["shov", "standart"]]);
-    assert.deepEqual(Object.keys(st).sort(), ["awaiting", "current_condition", "current_product", "current_products", "current_spec", "current_specs", "current_variant", "last_intent"]);
+    assert.deepEqual(Object.keys(st).sort(), ["awaiting", "current_condition", "current_product", "current_products", "current_spec", "current_specs", "current_use_case", "current_variant", "last_intent"]);
     // После сравнения «у него» неясно, о каком.
     r = step("А какая у него прочность?");
     assert.deepEqual(r.needs, ["which_product"]);

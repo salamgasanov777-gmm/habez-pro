@@ -128,8 +128,10 @@ describe("поиск данных", () => {
   test("подбор по задаче: ищет по каталогу, основание (ГКЛ) в ответ не попадает", async () => {
     const r = await ask("public", "Какие сухие смеси Habez подходят для заделки швов ГКЛ?");
     assert.equal(r.intent, "application");
-    assert.ok(r.found.includes(ids.shov), "ШОВ найден");
-    assert.ok(!r.found.includes(ids.gkl), "лист ГКЛ — не сухая смесь");
+    // С Phase 3.3 — подбор по пригодности, а не поиск по словам.
+    assert.equal(r.mode, "PRODUCT_SELECTION");
+    assert.equal(r.suitability.find((x) => x.slug === "shov")?.status, "SUPPORTED", "ШОВ — подтверждено данными");
+    assert.ok(!r.suitability.some((x) => x.slug === "gkl"), "лист ГКЛ — основание, не кандидат");
   });
 });
 

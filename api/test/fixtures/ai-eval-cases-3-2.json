@@ -23,7 +23,7 @@
         ]
       },
       "expected_behavior": {
-        "mode": "CONFLICT",
+        "mode": "PRODUCT_PROFILE",
         "model": true,
         "text": "Падеж «ШОВа» распознан как ШОВ; рассказ о товаре со ссылками, споры — все значения."
       },
@@ -95,19 +95,20 @@
         ]
       },
       "expected_tools": [
-        "search_products"
+        "get_product_specs"
       ],
       "expected_evidence": {
-        "found": [
-          "shov"
-        ]
+        "suitability": {
+          "shov": "SUPPORTED"
+        }
       },
       "expected_behavior": {
         "model": true,
-        "text": "Подбор по задаче: ГКЛ — основание, в подбор не попадает; ШОВ найден."
+        "text": "Подбор по задаче (с Phase 3.3 — оценка пригодности): ГКЛ — основание, в кандидаты не попадает; ШОВ — подтверждено данными.",
+        "mode": "PRODUCT_SELECTION"
       },
       "forbidden_behavior": {
-        "found_excludes": [
+        "suitability_excludes": [
           "gkl"
         ]
       }
@@ -160,7 +161,7 @@
         }
       },
       "expected_behavior": {
-        "mode": "CONFLICT",
+        "mode": "PRODUCT_PROFILE",
         "model": true,
         "text": "Рассказ о ШОВ; D4 и D2 — все значения, без победителя."
       },
@@ -197,7 +198,7 @@
         ]
       },
       "expected_behavior": {
-        "mode": "CONFLICT",
+        "mode": "PRODUCT_PROFILE",
         "model": true,
         "text": "Расход мл/м² и г/м² — открытый вопрос D5, без пересчёта."
       },

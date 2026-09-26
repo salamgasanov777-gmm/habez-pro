@@ -1,5 +1,5 @@
-// Habez AI Phase 3.2: 30 детерминированных случаев (test/fixtures/
-// ai-eval-cases-3-2.json). Беседа из нескольких реплик прогоняется по
+// Habez AI Phase 3.2–3.3: детерминированные случаи (test/fixtures/
+// ai-eval-cases-3-2.json — 30, ai-eval-cases-3-3.json — 46). Беседа из нескольких реплик прогоняется по
 // порядку: состояние, история и номера [E#] переносятся, как в окне чата.
 // Проверяется последняя реплика. Один код — для теста с заглушкой и для
 // прогона с настоящей моделью (live: проверки текста ответа).
@@ -11,6 +11,7 @@ import { runAgent } from "../runtime/agent.js";
 const here = dirname(fileURLToPath(import.meta.url));
 export const EVAL32_FILE = resolve(here, "../../../../test/fixtures/ai-eval-cases-3-2.json");
 export const loadEval32 = (file = EVAL32_FILE) => JSON.parse(readFileSync(file, "utf8"));
+export const EVAL33_FILE = resolve(here, "../../../../test/fixtures/ai-eval-cases-3-3.json");
 
 const WINNER = /(правильн|верн|актуальн|точн)(ое|ым|ая) значени|устаревш|следует (использовать|ориентироваться)|технолог уточнил|ориентируйтесь на|(лучше|прочнее|надёжнее|надежнее) (по|чем)/i;
 
@@ -58,6 +59,20 @@ export function evaluateCase32(c, r, { slugOf = new Map(), live = false } = {}) 
   for (const ck of ev.condition_keys || []) has(props.some((p) => String(p.conditionKey || "").includes(ck)), `нет свойства с условием ${ck}`);
   for (const row of ev.comparison_rows || []) has((r.context.comparison?.rows || []).some((x) => x.label === row), `в сравнении нет строки «${row}»`);
   if (ev.missing_cells) has((r.context.comparison?.rows || []).some((x) => x.cells.some((cell) => cell.missing)), "в сравнении не отмечено «нет данных»");
+  for (const [slug, st] of Object.entries(ev.suitability || {})) {
+    const got = (r.suitability || []).find((x) => x.slug === slug);
+    has(got && got.status === st, `пригодность ${slug}: ${got?.status ?? "нет в списке"}, ожидалось ${st}`);
+  }
+  if (ev.profile) {
+    has(!!r.profile, "нет паспорта товара");
+    if (r.profile && ev.profile.variant !== undefined) has(r.profile.variant === ev.profile.variant, `паспорт фасовки ${r.profile.variant}, ожидалась ${ev.profile.variant}`);
+    if (r.profile && ev.profile.min_key_specs) has(r.profile.keySpecs >= ev.profile.min_key_specs, `основных свойств ${r.profile.keySpecs}`);
+    if (r.profile && ev.profile.conflicts) for (const c of ev.profile.conflicts) has(r.profile.conflicts.includes(c), `в паспорте нет расхождения «${c}»`);
+  }
+  for (const k of ev.application_kinds || []) has((r.application?.kinds || []).includes(k), `в применении нет «${k}»`);
+  for (const k of ev.application_missing || []) has((r.application?.missing || []).includes(k), `«${k}» не отмечено как отсутствующее`);
+  if (ev.compatibility) has(r.compatibility?.status === ev.compatibility, `совместимость ${r.compatibility?.status}, ожидалось ${ev.compatibility}`);
+  if (ev.use_case) has(r.useCase === ev.use_case, `задача ${r.useCase}, ожидалась ${ev.use_case}`);
   for (const name of ev.citation_products || []) has((r.citations || []).some((c) => String(c.product || "").toUpperCase().includes(name)), `нет ссылки на данные «${name}»`);
   if (ev.only_disputed) has(props.every((p) => ["conflict", "unresolved"].includes(p.status) || p.hiddenDisagreement), "в ответе о расхождениях есть бесспорные свойства");
 
@@ -72,6 +87,8 @@ export function evaluateCase32(c, r, { slugOf = new Map(), live = false } = {}) 
   for (const s of f.context_excludes || []) has(!text.includes(s), `в данных есть запрещённое «${s}»`);
   for (const ck of f.condition_keys || []) has(!props.some((p) => String(p.conditionKey || "").includes(ck)), `использовано условие ${ck}`);
   for (const k of f.keys || []) has(!props.some((p) => p.key === k), `в данных лишнее ${k}`);
+  for (const slug of f.suitability_excludes || []) has(!(r.suitability || []).some((x) => x.slug === slug), `в подборе лишний ${slug}`);
+  for (const [slug, st] of Object.entries(f.suitability_not || {})) has(!(r.suitability || []).some((x) => x.slug === slug && x.status === st), `у ${slug} запрещённый статус ${st}`);
   for (const s of f.found_excludes || []) has(!r.found.map((id) => slugOf.get(id)).includes(s), `в подборе лишний ${s}`);
   if (f.model_call) has(r.model === null, "модель вызвана");
 
@@ -82,6 +99,7 @@ export function evaluateCase32(c, r, { slugOf = new Map(), live = false } = {}) 
     has(!g.mismatched.length, `число не из указанного источника: ${g.mismatched.join(", ")}`);
     has(!g.forbidden, "в ответе скрытые данные");
     has(!g.foreignProducts.length, `чужие товары: ${g.foreignProducts.join(", ")}`);
+    has(!(g.statusMismatch || []).length, `«подходит» вопреки статусу: ${(g.statusMismatch || []).join(", ")}`);
     if (g.uncited.length) warn.push(`без ссылки: ${g.uncited.join(", ")}`);
     if (f.winner) has(!WINNER.test(r.answer), `выбран «победитель»: ${r.answer.match(WINNER)?.[0]}`);
   }

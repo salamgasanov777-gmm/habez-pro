@@ -454,6 +454,46 @@ describe("Phase 3.2: агент с инструментами через HTTP", 
   });
 });
 
+describe("Phase 3.3: Product Intelligence через HTTP", () => {
+  test("подбор: статусы пригодности в meta, модель получает готовую структуру", async () => {
+    fake.mode = "cite";
+    const r = await chat(bearer(users.manager.token), { message: "Что использовать для швов ГКЛ?" });
+    assert.equal(r.meta.mode, "PRODUCT_SELECTION");
+    assert.equal(r.meta.useCase.id, "drywall_joint_treatment");
+    assert.equal(r.meta.suitability.find((x) => x.slug === "shov").status, "SUPPORTED");
+    assert.ok(!r.meta.suitability.some((x) => x.slug === "gkl"));
+    assert.match(modelInput(), /ПОДБОР ДЛЯ ЗАДАЧИ/);
+    assert.equal(r.done.state.current_use_case, "drywall_joint_treatment");
+    const why = await chat(bearer(users.manager.token), { message: "Почему?", state: r.done.state, refBase: r.done.refNext });
+    assert.deepEqual([why.meta.route.intent, why.meta.route.productSlugs], ["suitability", ["shov"]]);
+  });
+
+  test("гостю подбор не использует конфиденциальное: ШОВ для фасада — «не подходит», а не «спорно»", async () => {
+    const r = await chat(guest(90), { message: "Подходит ли ШОВ для фасада?" });
+    assert.equal(r.meta.suitability[0].status, "NOT_SUPPORTED");
+    assert.ok(!modelInput().includes("lab-shov-facade"));
+    const admin = await chat(bearer(users.admin.token), { message: "Подходит ли ШОВ для фасада?" });
+    assert.equal(admin.meta.suitability[0].status, "CONFLICTED");
+  });
+
+  test("паспорт и применение: режимы и сводки в meta", async () => {
+    const p = await chat(bearer(users.manager.token), { message: "Расскажи про ШОВ" });
+    assert.equal(p.meta.mode, "PRODUCT_PROFILE");
+    assert.ok(p.meta.profile.keySpecs > 0);
+    const a = await chat(bearer(users.manager.token), { message: "Как применять КОРОЕД?" });
+    assert.equal(a.meta.mode, "PRODUCT_APPLICATION");
+    assert.ok(a.meta.application.missing.includes("расход"));
+  });
+
+  test("недостаточно данных — ответ без модели", async () => {
+    const n = fake.requests.length;
+    const r = await chat(bearer(users.manager.token), { message: "Подходит ли ЭКОНОМ для влажных помещений?" });
+    assert.equal(r.meta.mode, "INSUFFICIENT_DATA");
+    assert.match(r.text, /недостаточно информации/);
+    assert.equal(fake.requests.length, n);
+  });
+});
+
 describe("база", () => {
   test("после всех ответов агента деловые данные не изменились, агент не пишет ничего", async () => {
     const changes = get("SELECT total_changes() AS n").n;
