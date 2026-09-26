@@ -131,6 +131,14 @@ export const config = {
       maxConcurrent: Number(env.AI_MAX_CONCURRENT || 2),
       publicDailyMax: Number(env.AI_PUBLIC_DAILY_MAX || 300),
       historyMaxChars: Number(env.AI_HISTORY_MAX_CHARS || 12000),
+      // Бюджет цикла инструментов (Phase 3.2): вызовов инструментов на ответ
+      // (план + модель), ходов модели, записей в пакете доказательств, знаков
+      // контекста и общее время на ответ.
+      maxToolCalls: Number(env.AI_AGENT_MAX_TOOL_CALLS || 8),
+      maxTurns: Number(env.AI_AGENT_MAX_TURNS || 3),
+      maxEvidence: Number(env.AI_AGENT_MAX_EVIDENCE || 160),
+      maxContextChars: Number(env.AI_AGENT_MAX_CONTEXT_CHARS || 48000),
+      totalTimeoutMs: Number(env.AI_AGENT_TOTAL_TIMEOUT_MS || 120000),
     },
     enabled: bool(env.AI_ENABLED, false),
     evidence: bool(env.AI_EVIDENCE_ENABLED, false),

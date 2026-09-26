@@ -8,10 +8,12 @@ const ENDINGS = ["", "а", "у", "е", "ом", "ой", "ы", "ов", "ам", "а
 const GENERIC = new Set(["80", "цементная", "гидроизоляция", "финиш", "фасад", "интерьер", "пол-р35"]);
 
 const BRAND = new Set(["хабез", "habez"]);
+// Заглавные слова, которые называют не товар, а понятие.
+const TECH_WORDS = new Set(["gtin", "ntin", "sku", "гост", "ту", "гвл", "гкл", "пгп", "мпа", "ндс", "pdf", "ai", "habez", "хабез"]);
 
 const firstWord = (p) => norm(p.name).split(" ")[0] || "";
 
-function aliases(p, uniqueFirst) {
+function aliases(p, uniqueFirst = new Set()) {
   const out = new Set();
   const short = norm(p.short_name);
   if (short && !GENERIC.has(short)) out.add(short);
@@ -49,13 +51,25 @@ function findSpans(text, alias) {
 // упоминания; более длинное имя «съедает» вложенное короткое
 // («КОРОЕД 3,5» не даёт лишнего «КОРОЕД»).
 export function detectProducts(question, products) {
+  return detectProductHits(question, products).map((h) => h.product);
+}
+
+// То же с местом в тексте и именем, по которому найдено: resolver.js
+// по ним понимает, какие слова вопроса уже «заняты» товарами.
+export function detectProductHits(question, products) {
   const text = norm(question);
   const counts = new Map();
   for (const p of products) counts.set(firstWord(p), (counts.get(firstWord(p)) || 0) + 1);
   const uniqueFirst = new Set([...counts].filter(([w, n]) => n === 1 && w.length >= 5).map(([w]) => w));
   const hits = [];
+  const original = String(question || "");
   for (const p of products) {
-    for (const a of aliases(p, uniqueFirst)) for (const s of findSpans(text, a)) hits.push({ p, s, len: a.length });
+    for (const a of aliases(p, uniqueFirst)) {
+      // Имя-обычное слово («ФАСАД», «ФИНИШ») называет товар только вместе с
+      // видом товара («краска ФАСАД») или написанное заглавными.
+      if (GENERIC.has(a) && !text.includes(firstWord(p).slice(0, 5)) && !original.includes(a.toUpperCase())) continue;
+      for (const s of findSpans(text, a)) hits.push({ p, s, len: a.length });
+    }
   }
   hits.sort((x, y) => y.len - x.len || x.s[0] - y.s[0]);
   const taken = [];
@@ -63,10 +77,11 @@ export function detectProducts(question, products) {
   for (const h of hits) {
     if (taken.some(([a, b]) => h.s[0] >= a && h.s[1] <= b && !(h.s[0] === a && h.s[1] === b))) continue;
     taken.push(h.s);
-    if (!out.has(h.p.id)) out.set(h.p.id, { product: h.p, at: h.s[0] });
+    if (!out.has(h.p.id)) out.set(h.p.id, { product: h.p, at: h.s[0], span: h.s, alias: text.slice(h.s[0], h.s[1]) });
   }
-  return [...out.values()].sort((a, b) => a.at - b.at).map((x) => x.product);
+  return [...out.values()].sort((a, b) => a.at - b.at);
 }
+export { aliases as productAliases, norm as normalizeText, ENDINGS, BRAND, GENERIC };
 
 // Названия товаров в вопросе, которых нет в каталоге: «ГИПСОМАКС-900»,
 // «Суперфиниш». Кандидат — текст в кавычках, слово заглавными (от 4 букв)
@@ -87,7 +102,7 @@ export function unknownNames(question, corpus) {
   }
   for (const m of q.matchAll(/(?:^|[^A-Za-zА-Яа-яЁё0-9-])([A-Za-zА-Яа-яЁё]{3,}[-‑][0-9]{2,}[A-Za-zА-Яа-яЁё0-9]*)(?=$|[^A-Za-zА-Яа-яЁё0-9-])/g)) found.add(m[1]);
   const hay = norm(corpus).replace(/‑/g, "-");
-  return [...found].filter((name) => {
+  return [...found].filter((name) => !TECH_WORDS.has(norm(name))).filter((name) => {
     const n = norm(name).replace(/‑/g, "-");
     // «ШОВа», «КОРОЕДа»: имя с падежным окончанием — тоже известное.
     const stems = [n, n.replace(/(а|у|е|ом|ой|ы|ов|и|ю|я|ем)$/, "")].filter((s) => s.length >= 3);

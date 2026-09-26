@@ -23,6 +23,7 @@ import { config } from "../../config.js";
 import { canUseAgent } from "./permissions.js";
 import { getProvider } from "./provider/index.js";
 import { runAgent } from "./runtime/agent.js";
+import { stateSchema } from "./retrieval/router.js";
 
 const body = z.object({
   message: z.string().trim().min(1).max(2000),
@@ -30,6 +31,10 @@ const body = z.object({
   // Длинная реплика не повод отказывать: обрезается (общий предел тела
   // запроса — 2 МБ, дальше историю ужимает cleanHistory).
   history: z.array(z.object({ role: z.enum(["user", "assistant"]), content: z.string().transform((s) => s.slice(0, 8000)) })).max(20).default([]),
+  // Phase 3.2: о чём сейчас беседа (не данные товаров) и с какого номера
+  // продолжать ссылки [E#] в этой беседе.
+  state: stateSchema.default({}),
+  refBase: z.number().int().min(0).max(100000).default(0),
 }).strict();
 
 // Токен прислан, но не принят (истёк, подделан, учётная запись
@@ -117,7 +122,7 @@ export default async function aiAgentRoutes(app) {
     send("start", { conversationId, requestId: req.id });
     try {
       const r = await runAgent({
-        tenantId: req.tenant.id, scope: access.scope, question: b.message, history: b.history,
+        tenantId: req.tenant.id, scope: access.scope, question: b.message, history: b.history, state: b.state, refBase: b.refBase,
         provider, signal: ctrl.signal, onEvent: send,
       });
       req.log.info({ aiAgent: {
@@ -125,6 +130,8 @@ export default async function aiAgentRoutes(app) {
         sources: r.sources, conflicts: r.conflicts, citations: r.citations.length, grounded: r.grounding.grounded,
         unsupported: r.grounding.unsupported.length, mismatched: r.grounding.mismatched.length, uncited: r.grounding.uncited.length,
         invalidCitations: r.grounding.invalidCitations.length, forbidden: r.grounding.forbidden, withheld: r.withheld,
+        mode: r.mode, foreignProducts: r.grounding.foreignProducts.length, metrics: r.metrics,
+        tools: r.toolCalls.map((c) => `${c.source}:${c.name}`),
         model: r.model, latencyMs: r.latencyMs, timings: r.timings, ok: true,
         tokens: { in: r.usage?.input_tokens ?? null, out: r.usage?.output_tokens ?? null },
       } }, "ai agent answer");

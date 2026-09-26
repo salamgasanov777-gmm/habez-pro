@@ -93,6 +93,7 @@ export function groupObservationProperties(product, properties, openItems, keyFi
       sourceType: o.sourceType, sourceReference: o.sourceReference, upstream: o.upstream?.ref ?? null,
       capture: o.capture?.channel ?? null, statementType: o.statementType,
       verification: o.verificationStatus, access: o.accessLevel, lifecycle: o.lifecycleStatus,
+      sourceName: o.sourceName ?? null, sourceDate: o.providedAt ?? null,
     });
     const cur = g.resolution.current;
     let values = [];

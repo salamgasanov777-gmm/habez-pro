@@ -8,8 +8,16 @@
 //   get_product_specs    — характеристики свойствами, с расхождениями
 //                          (сотрудникам — наблюдения + строки карточки вне словаря);
 //   get_product_evidence — наблюдения с происхождением (сотрудникам);
-//   compare_products     — характеристики нескольких товаров рядом;
-//   search_knowledge     — факты слоя знаний по словам (сотрудникам).
+//   compare_products     — таблица сравнения: общие характеристики по
+//                          ключу и условию, споры, пропуски (Phase 3.2);
+//   search_knowledge     — общий поиск: товары, характеристики, условия,
+//                          фасовки, разделы карточек; сотрудникам ещё
+//                          наблюдения, источники и вопросы сверки.
+//
+// Phase 3.2: у каждого инструмента — описание, схема входа и выхода, права
+// и признак read_only / write: false (TOOL_SPECS). callTool проверяет
+// это при каждом вызове: если за время работы инструмента в базе что-то
+// изменилось (total_changes), вызов падает.
 import { z } from "zod";
 import { all, get } from "../../../db/index.js";
 import { cardItems } from "../../knowledge/legacy-provenance.js";
@@ -36,7 +44,7 @@ const schemas = {
   get_product_specs: z.object({ productId: z.number().int().positive(), keyFilter: z.any().optional() }),
   get_product_evidence: z.object({ productId: z.number().int().positive() }),
   compare_products: z.object({ productIds: z.array(z.number().int().positive()).min(2).max(4), keyFilter: z.any().optional() }),
-  search_knowledge: z.object({ terms: z.array(z.string().min(2).max(40)).max(12), limit: z.number().int().min(1).max(20).default(8) }),
+  search_knowledge: z.object({ terms: z.array(z.string().min(2).max(40)).max(12), limit: z.number().int().min(1).max(20).default(8), minScore: z.number().int().min(1).max(5).default(1) }),
 };
 
 function searchProducts(ctx, { terms, limit }) {
@@ -79,6 +87,16 @@ function getProductSpecs(ctx, { productId, keyFilter }) {
   if (ctx.scope === "public") {
     // Гостю и покупателю — ровно то, что напечатано в карточке на витрине.
     const props = groupCardProperties(p, cardItems(p), keyFilter);
+    // Есть внутренние или конфиденциальные сведения, которые расходятся с
+    // карточкой по тому же свойству и условию, — гостю можно сказать только
+    // это, без значений.
+    const hidden = all("SELECT spec_key, condition_key, original_value FROM ai_spec_observations WHERE tenant_id=? AND product_id=? AND lifecycle_status='active'", ctx.tenantId, productId);
+    for (const prop of props) {
+      if (!prop.key) continue;
+      const shown = new Set(prop.values.map((v) => sameValueKey(v.display, { withBool: true }) ?? String(v.display).toLowerCase()));
+      prop.hiddenDisagreement = hidden.some((o) => o.spec_key === prop.key && (o.condition_key || "") === (prop.conditionKey || "")
+        && !shown.has(sameValueKey(o.original_value, { withBool: true }) ?? String(o.original_value).toLowerCase()));
+    }
     // Сам факт открытых вопросов сверки по товару можно назвать, значения и
     // источники — нет.
     const internalOpenItems = all("SELECT COUNT(*) AS n FROM ai_reconciliation_items WHERE tenant_id=? AND product_id=? AND status='unresolved'", ctx.tenantId, productId)[0]?.n ?? 0;
@@ -130,23 +148,78 @@ function getProductEvidence(ctx, { productId }) {
   return productEvidence(ctx.tenantId, productId, evidenceRoleForScope(ctx.scope));
 }
 
+// Сравнение: для каждой характеристики (ключ × условие) — ячейка по каждому
+// товару: значения, статус спора или «нет данных». Строки без ключа
+// (надписи карточки) сравниваются по подписи. Победитель не выбирается.
 function compareProducts(ctx, { productIds, keyFilter }) {
-  return { items: productIds.map((id) => getProductSpecs(ctx, { productId: id, keyFilter })).filter(Boolean) };
+  const items = productIds.map((id) => getProductSpecs(ctx, { productId: id, keyFilter })).filter(Boolean);
+  return { items, products: items.map((it) => it.product), rows: comparisonRows(items) };
 }
 
-function searchKnowledge(ctx, { terms, limit }) {
-  if (ctx.scope === "public") return { items: [] };
+// Строки сравнения по уже отобранным свойствам (план может сузить их по
+// условиям и фасовке — тогда строки пересчитываются).
+export function comparisonRows(items) {
+  const rows = new Map();
+  for (const it of items) {
+    for (const prop of it.properties) {
+      if (prop.variant) continue; // фасовки сравниваются отдельно
+      const rk = prop.key ? `${prop.key}|${prop.conditionKey || ""}` : `label:${String(prop.label).toLowerCase()}`;
+      if (!rows.has(rk)) rows.set(rk, { key: prop.key, label: prop.label, conditionKey: prop.conditionKey || "", conditionText: prop.conditionText, cells: {} });
+      rows.get(rk).cells[it.product.id] = prop;
+    }
+  }
+  const list = [...rows.values()].map((r) => ({ ...r, common: items.every((it) => r.cells[it.product.id]), missing: items.filter((it) => !r.cells[it.product.id]).map((it) => it.product.id) }));
+  // Сначала общие строки, затем те, что есть не у всех.
+  list.sort((a, b) => Number(b.common) - Number(a.common));
+  return list;
+}
+
+// Общий поиск по слоям: карточки (название, короткое имя, разделы, строки
+// таблиц), фасовки (название, артикул), а сотрудникам — наблюдения (подпись,
+// значение, условие, ключ), источники и вопросы сверки. Правила, без
+// векторов: счёт — число слов запроса, найденных в строке.
+function searchKnowledge(ctx, { terms, limit, minScore }) {
   if (!terms.length) return { items: [] };
-  const levels = ctx.scope === "admin" ? ["public", "internal", "confidential"] : ["public", "internal"];
-  const rows = all(`SELECT o.id, o.product_id, p.slug, o.spec_key, o.label, o.original_value, o.condition_text, o.source_type, o.access_level
-      FROM ai_spec_observations o JOIN products p ON p.id=o.product_id
-     WHERE o.tenant_id=? AND o.access_level IN (${levels.map(() => "?").join(",")})`, ctx.tenantId, ...levels);
-  return {
-    items: rows.map((r) => {
-      const hay = [r.label, r.original_value, r.condition_text, evidenceKeyMeta(r.spec_key)?.label].join(" ").toLowerCase().replace(/ё/g, "е");
-      return { r, score: terms.filter((t) => hay.includes(t)).length };
-    }).filter((x) => x.score > 0).sort((a, b) => b.score - a.score || a.r.id - b.r.id).slice(0, limit).map((x) => x.r),
-  };
+  const low = (x) => String(x ?? "").toLowerCase().replace(/ё/g, "е");
+  const score = (...parts) => { const hay = low(parts.join(" ")); return terms.filter((t) => hay.includes(t)).length; };
+  const published = ctx.scope === "public" ? ` AND ${PUBLISHED}` : "";
+  const out = [];
+  for (const p of all(`SELECT p.id, p.slug, p.name, p.short_name, p.summary, p.sections, p.spec_tables, p.badges FROM products p WHERE p.tenant_id=?${published}`, ctx.tenantId)) {
+    const s0 = score(p.name, p.short_name, p.slug, p.summary);
+    if (s0) out.push({ type: "product", productId: p.id, slug: p.slug, product: p.name, label: "описание", value: p.summary || p.name, score: s0 + 1 });
+    for (const sec of json(p.sections, [])) {
+      const s1 = score(sec.title, sec.text);
+      if (s1) out.push({ type: "section", productId: p.id, slug: p.slug, product: p.name, label: sec.title, value: String(sec.text || "").slice(0, 400), score: s1 });
+    }
+    for (const it of cardItems(p)) {
+      const s2 = score(it.label, it.value, evidenceKeyMeta(it.key)?.label);
+      if (s2) out.push({ type: "card_row", productId: p.id, slug: p.slug, product: p.name, label: it.label, value: it.value, score: s2 });
+    }
+  }
+  for (const v of all(`SELECT v.id, v.product_id, v.unit, v.sku, v.per_pallet, p.slug, p.name FROM variants v JOIN products p ON p.id=v.product_id
+      WHERE v.tenant_id=? AND v.is_active=1${published}`, ctx.tenantId)) {
+    const s3 = score(v.unit, v.sku, "фасовка", v.name);
+    if (s3 >= 2 || score(v.unit, v.sku)) out.push({ type: "variant", productId: v.product_id, slug: v.slug, product: v.name, label: "фасовка", value: v.unit, variant: v.unit, perPallet: v.per_pallet, score: s3 });
+  }
+  if (ctx.scope !== "public") {
+    const levels = ctx.scope === "admin" ? ["public", "internal", "confidential"] : ["public", "internal"];
+    const rows = all(`SELECT o.id, o.product_id, p.slug, p.name AS product_name, o.spec_key, o.label, o.original_value, o.condition_text, o.source_type,
+        o.source_name, o.source_reference, o.access_level, o.verification_status FROM ai_spec_observations o JOIN products p ON p.id=o.product_id
+       WHERE o.tenant_id=? AND o.lifecycle_status='active' AND o.access_level IN (${levels.map(() => "?").join(",")})`, ctx.tenantId, ...levels);
+    for (const r of rows) {
+      const s4 = score(r.label, r.original_value, r.condition_text, evidenceKeyMeta(r.spec_key)?.label, r.source_name, r.source_reference);
+      if (s4) out.push({ type: "observation", productId: r.product_id, slug: r.slug, product: r.product_name, observationId: r.id, key: r.spec_key,
+        label: evidenceKeyMeta(r.spec_key)?.label || r.label, value: r.original_value, condition: r.condition_text, sourceType: r.source_type,
+        reference: r.source_reference, access: r.access_level, verification: r.verification_status, score: s4 });
+    }
+    for (const q of all(`SELECT i.item_key, i.kind, i.decision_ref, i.spec_key, i.rule_note, p.slug, p.name AS product_name, p.id AS product_id
+        FROM ai_reconciliation_items i JOIN products p ON p.id=i.product_id WHERE i.tenant_id=? AND i.status='unresolved'`, ctx.tenantId)) {
+      const s5 = score(q.decision_ref, q.rule_note, evidenceKeyMeta(q.spec_key)?.label, q.product_name, "сверка расхождение вопрос");
+      if (s5 >= 2) out.push({ type: "question", productId: q.product_id, slug: q.slug, product: q.product_name, key: q.spec_key,
+        label: `вопрос сверки ${q.decision_ref || ""}`.trim(), value: evidenceKeyMeta(q.spec_key)?.label || q.spec_key, decision: q.decision_ref, score: s5 });
+    }
+  }
+  return { items: out.filter((x) => x.score >= minScore).sort((a, b) => b.score - a.score || a.productId - b.productId).slice(0, limit) };
 }
 
 const IMPL = {
@@ -156,11 +229,77 @@ const IMPL = {
 
 export const TOOL_NAMES = Object.keys(IMPL);
 
-// Единая точка вызова: проверка аргументов по схеме, контекст обязателен.
+// Единый контракт инструментов (Phase 3.2). input_schema — то, что видит
+// модель (имена товаров и слова, а не номера из базы: номера подставляет
+// сервер через resolver). output_schema — что возвращается (кратко).
+const PRODUCT = { type: "string", description: "Название или короткое имя товара, как его пишет пользователь (ШОВ, «Стандарт», ГКЛ 12,5)" };
+const SPECS = { type: "array", items: { type: "string" }, description: "Характеристики словами пользователя: «прочность сцепления», «время схватывания», «расход воды»" };
+const CONDITION = { type: "string", description: "Условие словами: «через 28 суток», «на мешок», «при толщине слоя 1 мм», «12,5 мм»" };
+export const TOOL_SPECS = {
+  search_products: {
+    description: "Найти товары Habez по задаче или словам (например, «для заделки швов ГКЛ»). Только опубликованные товары.",
+    input_schema: { type: "object", properties: { query: { type: "string" } }, required: ["query"] },
+    output_schema: "товары: название, раздел, описание, строки «Область применения»",
+    permissions: { public: "опубликованные товары", staff: "опубликованные товары", admin: "опубликованные товары" },
+  },
+  get_product: {
+    description: "Карточка товара: название, раздел, описание, разделы карточки, фасовки.",
+    input_schema: { type: "object", properties: { product: PRODUCT }, required: ["product"] },
+    output_schema: "карточка и фасовки (каждая отдельно)",
+    permissions: { public: "только опубликованные", staff: "все товары компании", admin: "все товары компании" },
+  },
+  get_product_specs: {
+    description: "Характеристики товара со статусом: одно значение, согласны, расхождение, нерешённый вопрос сверки. Можно сузить характеристиками, условием и фасовкой.",
+    input_schema: { type: "object", properties: { product: PRODUCT, specs: SPECS, condition: CONDITION }, required: ["product"] },
+    output_schema: "свойства: ключ, условие, фасовка, значения с источниками, статус",
+    permissions: { public: "строки карточки витрины", staff: "наблюдения public+internal и строки карточки", admin: "все наблюдения" },
+  },
+  get_product_evidence: {
+    description: "Наблюдения по товару с происхождением: вид источника, документ, дата, проверка, уровень доступа. Для вопросов «откуда это значение».",
+    input_schema: { type: "object", properties: { product: PRODUCT, specs: SPECS }, required: ["product"] },
+    output_schema: "наблюдения с источником, датой, проверкой и уровнем доступа",
+    permissions: { public: "запрещено", staff: "public+internal", admin: "всё" },
+  },
+  compare_products: {
+    description: "Сравнить 2–4 товара: общие характеристики по одному ключу и условию, расхождения, пропуски данных. Победителя не выбирает.",
+    input_schema: { type: "object", properties: { products: { type: "array", items: PRODUCT, minItems: 2, maxItems: 4 }, specs: SPECS }, required: ["products"] },
+    output_schema: "таблица: строка — характеристика, ячейка — значения и статус по каждому товару или «нет данных»",
+    permissions: { public: "как get_product_specs", staff: "как get_product_specs", admin: "как get_product_specs" },
+  },
+  search_knowledge: {
+    description: "Общий поиск по данным Habez: товары, характеристики, условия, фасовки, разделы карточек; сотрудникам ещё наблюдения, источники, вопросы сверки.",
+    input_schema: { type: "object", properties: { query: { type: "string" } }, required: ["query"] },
+    output_schema: "найденные строки с типом (товар, раздел, строка карточки, фасовка, наблюдение, вопрос сверки)",
+    permissions: { public: "витрина: товары, разделы, строки карточек, фасовки", staff: "+ наблюдения public+internal, вопросы сверки", admin: "+ конфиденциальные наблюдения" },
+  },
+};
+for (const [name, spec] of Object.entries(TOOL_SPECS)) Object.assign(spec, { name, read_only: true, write: false });
+// Инструмент с записью сюда попасть не может: проверка при загрузке.
+if (Object.values(TOOL_SPECS).some((t) => t.write !== false || t.read_only !== true) || TOOL_NAMES.some((n) => !TOOL_SPECS[n])) {
+  throw new Error("Habez AI: инструменты агента — только чтение");
+}
+// Какие инструменты показывать модели для этой роли.
+export const toolsForScope = (scope) => Object.values(TOOL_SPECS)
+  .filter((t) => scope !== "public" || t.name !== "get_product_evidence")
+  .map((t) => ({ name: t.name, description: t.description, input_schema: t.input_schema }));
+
+const changes = () => get("SELECT total_changes() AS n").n;
+
+// Единая точка вызова: проверка аргументов по схеме, контекст обязателен,
+// и гарантия «только чтение» на деле: база за время вызова не изменилась.
 export function callTool(name, args, ctx) {
   if (!IMPL[name]) throw new Error(`нет инструмента ${name}`);
   if (!ctx || !ctx.tenantId || !["public", "staff", "admin"].includes(ctx.scope)) throw new Error("инструменту нужен контекст с ролью");
   const parsed = schemas[name].parse(args);
-  return IMPL[name](ctx, parsed);
+  return readOnly(name, () => IMPL[name](ctx, parsed));
+}
+
+// Гарантия «только чтение» на деле: если за время работы в базе что-то
+// изменилось (total_changes этого соединения), вызов падает.
+export function readOnly(name, fn) {
+  const before = changes();
+  const out = fn();
+  if (changes() !== before) throw new Error(`инструмент ${name} изменил базу — это запрещено`);
+  return out;
 }
 
