@@ -6,6 +6,9 @@ import FactDetails from "./FactDetails.jsx";
 import Sources from "./Sources.jsx";
 import Products from "./Products.jsx";
 import ProductIntelligence from "./ProductIntelligence.jsx";
+import Competitors from "./Competitors.jsx";
+import CompetitorCard from "./CompetitorCard.jsx";
+import CompetitorProduct from "./CompetitorProduct.jsx";
 
 // Habez AI → База знаний. Пока это слой данных: источники и проверяемые
 // факты. Чат и анализ появятся следующими фазами и встанут сюда же
@@ -27,6 +30,7 @@ export default function AiApp() {
         <NavLink to="/admin/ai" end className={({ isActive }) => `btn btn-sm ${isActive ? "btn-primary" : ""}`}>Факты</NavLink>
         <NavLink to="/admin/ai/products" className={({ isActive }) => `btn btn-sm ${isActive ? "btn-primary" : ""}`}>Товары</NavLink>
         <NavLink to="/admin/ai/sources" className={({ isActive }) => `btn btn-sm ${isActive ? "btn-primary" : ""}`}>Источники</NavLink>
+        <NavLink to="/admin/ai/competitors" className={({ isActive }) => `btn btn-sm ${isActive || /competitor-products/.test(window.location.pathname) ? "btn-primary" : ""}`}>Конкуренты</NavLink>
       </div>
 
       {s && (
@@ -50,6 +54,9 @@ export default function AiApp() {
         <Route path="products" element={<Products />} />
         <Route path="products/:id" element={<ProductIntelligence onChanged={reload} />} />
         <Route path="sources" element={<Sources onChanged={reload} />} />
+        <Route path="competitors" element={<Competitors />} />
+        <Route path="competitors/:id" element={<CompetitorCard />} />
+        <Route path="competitor-products/:id" element={<CompetitorProduct />} />
       </Routes>
     </div>
   );

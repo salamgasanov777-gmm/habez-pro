@@ -38,7 +38,11 @@ Object.assign(process.env, {
 });
 delete process.env.ANTHROPIC_API_KEY;
 const { prepareAiDb, LEVEL_VALUES } = await import(join(root, "api/test/helpers/ai-fixture.js"));
-await prepareAiDb();
+const aiIds = await prepareAiDb();
+// 3.5: синтетические конкуренты (ТестСмесь, Пример-Гипс…) — только в этой
+// временной базе.
+const { seedCompetitors } = await import(join(root, "api/test/helpers/competitor-fixture.js"));
+const cx = await seedCompetitors();
 const { insert, run, get } = await import(join(root, "api/src/db/index.js"));
 const { hashPassword, randomToken, sha256 } = await import(join(root, "api/src/lib/crypto.js"));
 const { config } = await import(join(root, "api/src/config.js"));
@@ -133,6 +137,15 @@ const ask = async (q) => { await typeInto(".ai-compose textarea", q); await wait
 const lastBot = `[...document.querySelectorAll(".ai-msg.bot")].at(-1)`;
 const idle = () => waitFor(`!!document.querySelector(".ai-compose button[type=submit]") && ${lastBot}?.dataset.status !== "streaming"`, "ответ завершён", 12000);
 const noHorizontalScroll = () => js("document.documentElement.scrollWidth <= window.innerWidth + 1");
+// Проверки 3.5 делают много запросов подряд. Сервер ограничивает 300 запросов
+// в минуту на адрес (вместе со статикой), поэтому они идут со своего адреса
+// (сервер верит X-Forwarded-For от loopback) — остальной сценарий этот
+// лимит не делит.
+let ipSeq = 0;
+async function ownAddress(fn) {
+  await cdp("Network.setExtraHTTPHeaders", { headers: { "x-forwarded-for": `10.35.0.${++ipSeq}` } });
+  try { return await fn(); } finally { await cdp("Network.setExtraHTTPHeaders", { headers: {} }); }
+}
 
 // ── Сценарии ──────────────────────────────────────────────────────────────
 const results = [];
@@ -144,6 +157,10 @@ async function check(name, fn) {
         wide: [...document.querySelectorAll("body *")].filter((el) => el.getBoundingClientRect().right > innerWidth + 1).slice(0, 6).map((el) => el.tagName + "." + el.className),
         body: document.body.innerText.slice(0, 200) })`).catch((x) => x.message);
       console.log(`     ${info}`);
+      console.log(`     js errors: ${JSON.stringify(consoleErrors.slice(-3)).slice(0, 600)}`);
+      console.log(`     html: ${await js("document.documentElement.outerHTML.slice(0, 400)").catch((x) => x.message)}`);
+      console.log(`     res: ${await js("JSON.stringify(performance.getEntriesByType('resource').slice(-6).map((r) => [r.name.replace(location.origin, ''), r.responseStatus]))").catch((x) => x.message)}`);
+      console.log(`     sw: ${await js("navigator.serviceWorker?.controller?.scriptURL || 'none'").catch((x) => x.message)}`);
     }
     await shot(`fail-${results.length}`).catch(() => {});
   }
@@ -377,6 +394,73 @@ for (const [label, w, h, mobile] of [["desktop", 1280, 900, false], ["mobile-375
     await clickText("button", "Новая беседа");
     await waitFor(`!document.querySelector(".ai-msg") && !!document.querySelector(".ai-examples")`, "пустая беседа с примерами");
   });
+
+  await check(`${label}: 3.5 — конкуренты: список, поиск, карточка компании, товар, цены, аналоги, сравнение`, () => ownAddress(async () => {
+    await go("/admin/ai/competitors");
+    await waitFor(`document.querySelectorAll(".ci-list-row").length >= 3`, "список конкурентов");
+    assert(await js(`[...document.querySelectorAll(".ci-list-row")].some((r) => r.textContent.includes("ТестСмесь") && r.textContent.includes("Марка-Т") && r.textContent.includes("Тестовый край"))`), "строка ТестСмеси: марки, регион");
+    if (label === "mobile-375") assert(await js(`getComputedStyle(document.querySelector(".ci-list-head")).display === "none"`), "на телефоне — карточки без шапки таблицы");
+    assert(await noHorizontalScroll(), "список шире экрана");
+    await js(`document.querySelector("h1").scrollIntoView({ block: "start" }), true`); await sleep(250);
+    await shot(`${label}-14-competitors`);
+    await typeInto(".ci-filters input", "Т-Шов");
+    await waitFor(`document.querySelectorAll(".ci-list-row").length === 1 && document.querySelector(".ci-list-row").textContent.includes("ТестСмесь")`, "поиск по имени товара");
+    await js(`document.querySelector(".ci-list-row").click(), true`);
+    await waitFor(`document.querySelector("h1")?.textContent === "ТестСмесь"`, "карточка компании");
+    assert(await js(`document.querySelectorAll(".ci-list-row").length === 4 && !!document.querySelector(".ci-sources li")`), "товары и источники компании");
+    assert(await noHorizontalScroll(), "карточка компании шире экрана");
+    await js(`document.querySelector("h1").scrollIntoView({ block: "start" }), true`); await sleep(250);
+    await shot(`${label}-15-company`);
+    await go(`/admin/ai/competitor-products/${cx.products.tShov.id}`);
+    await waitFor(`document.querySelector("h1")?.textContent.includes("Т-Шов")`, "карточка товара");
+    await waitFor(`!!document.querySelector("[data-block=properties] .ci-conflict")`, "расхождение характеристик показано");
+    assert(await js(`document.querySelector("[data-block=prices]").textContent.includes("450,00") && document.querySelector("[data-block=prices]").textContent.includes("за кг")`), "цены с основами");
+    assert(await js(`document.querySelector("[data-block=prices]").textContent.includes("390,00")`), "администратору видна конфиденциальная цена");
+    assert(await js(`[...document.querySelectorAll("[data-block=analogs] .ci-analog")].some((a) => a.dataset.status === "CONFIRMED" && a.textContent.includes("ШОВ"))`), "подтверждённый аналог ШОВ");
+    assert(await js(`[...document.querySelectorAll("[data-block=analogs] .ci-analog")].some((a) => a.dataset.status === "INFERRED" && a.textContent.includes("Предположение"))`), "предположение подписано");
+    await waitFor(`!!document.querySelector("[data-block=compare] .ai-compare table")`, "таблица сравнения");
+    assert(await js(`document.querySelector("[data-block=compare]").textContent.includes("нет данных")`), "пропуски — «нет данных»");
+    assert(await js(`!/unknown_legacy_origin|technical_document|explicit_source_statement|user_decision/.test(document.querySelector(".ci-page").textContent)`), "служебные коды на экране");
+    await js(`document.querySelector("h1").scrollIntoView({ block: "start" }), true`); await sleep(250);
+    await shot(`${label}-16a-product`);
+    await js(`document.querySelector("[data-block=prices]").scrollIntoView({ block: "start" }), true`); await sleep(300);
+    await shot(`${label}-16b-prices`);
+    assert(await js(`!/лучш|хуже|выгодн|победит/i.test(document.querySelector(".ci-page").textContent)`), "оценочных слов нет");
+    assert(await noHorizontalScroll(), "карточка товара шире экрана");
+    await js(`document.querySelector("[data-block=compare]").scrollIntoView({ block: "start" }), true`); await sleep(300);
+    await shot(`${label}-16-compare`);
+    await go(`/admin/ai/competitor-products/${cx.products.pFinish.id}`);
+    await waitFor(`!!document.querySelector("[data-empty=properties]") && !!document.querySelector("[data-empty=prices]")`, "«нет характеристик», «нет цен»");
+    await go(`/admin/ai/products/${aiIds.shov}`);
+    await waitFor(`document.querySelector("[data-block=our-analogs]")?.textContent.includes("Т-Шов")`, "аналоги на карточке нашего товара");
+  }));
+
+  await check(`${label}: 3.5 — формы: без источника и даты цена не сохраняется; новая компания появляется без перезагрузки`, () => ownAddress(async () => {
+    await go(`/admin/ai/competitor-products/${cx.products.tShov.id}`);
+    await waitFor(`!!document.querySelector("h1")`, "карточка товара");
+    await clickText("[data-block=prices] button", "Добавить цену");
+    await waitFor(`!!document.querySelector(".modal .ci-form")`, "форма цены");
+    assert(await js(`document.querySelector(".modal button[type=submit]").disabled`), "без суммы, основы, даты и источника — нельзя");
+    await typeInto(".modal input[inputmode=decimal]", "455,50");
+    await typeInto(".modal input[placeholder='за мешок 25 кг']", "за мешок 25 кг");
+    await sleep(100);
+    assert(await js(`document.querySelector(".modal button[type=submit]").disabled && /дата наблюдения/.test(document.querySelector(".modal .ci-form").textContent) && /источник/.test(document.querySelector(".modal .ci-form").textContent)`), "без даты и источника — нельзя, и это сказано");
+    assert(await js(`[...document.querySelectorAll(".modal select")].some((s) => [...s.options].some((o) => o.textContent === "конфиденциальные"))`), "уровень доступа в форме");
+    assert(await js(`document.querySelector(".modal").getBoundingClientRect().right <= innerWidth + 1`), "форма шире экрана");
+    await shot(`${label}-17-price-form`);
+    await js(`document.querySelector(".modal .btn:not(.btn-primary)").click(), true`);
+    await go("/admin/ai/competitors");
+    await waitFor(`document.querySelectorAll(".ci-list-row").length >= 3`, "список");
+    await clickText("button", "Добавить компанию");
+    await waitFor(`!!document.querySelector(".modal input[name=name]")`, "форма компании");
+    const name = `E2E-Компания-${label.length}`;
+    await typeInto(".modal input[name=name]", name);
+    await waitFor(`!document.querySelector(".modal button[type=submit]").disabled`, "можно сохранить");
+    await js(`document.querySelector(".modal button[type=submit]").click(), true`);
+    await waitFor(`!document.querySelector(".modal") && [...document.querySelectorAll(".ci-list-row")].some((r) => r.textContent.includes(${JSON.stringify(name)}))`, "новая компания в списке без перезагрузки");
+    assert(await noHorizontalScroll(), "страница шире экрана после сохранения");
+  }));
+
 }
 
 await viewport(1280, 900, false);
@@ -398,6 +482,20 @@ await check("менеджер: вход через форму, уровень «
   const input = fake.last().body.messages.at(-1).content;
   assert(!input.includes(LEVEL_VALUES.confidential), "конфиденциальное ушло модели");
 });
+
+await check("менеджер: конкуренты только для чтения, конфиденциальное — только числом", () => ownAddress(async () => {
+  await go("/admin/ai/competitors");
+  await waitFor(`document.querySelectorAll(".ci-list-row").length >= 2`, "список для менеджера");
+  assert(!(await js(`[...document.querySelectorAll("button")].some((b) => b.textContent.includes("Добавить компанию"))`)), "у менеджера нет кнопки записи");
+  assert(!(await js(`document.body.textContent.includes("Секрет-Групп")`)), "конфиденциальная компания видна менеджеру");
+  await go(`/admin/ai/competitor-products/${cx.products.tShov.id}`);
+  await waitFor(`!!document.querySelector("[data-block=prices]")`, "цены для менеджера");
+  assert(await js(`!document.querySelector("[data-block=prices]").textContent.includes("390,00") && /доступны другой роли/.test(document.querySelector("[data-block=prices]").textContent)`), "дилерская цена скрыта, есть пометка");
+  assert(!(await js(`[...document.querySelectorAll("button")].some((b) => /Добавить|Снять|Изменить/.test(b.textContent))`)), "у менеджера нет форм");
+  // Дальше сценарий продолжается с Habez AI — возвращаемся туда же.
+  await go("/admin/assistant");
+  await waitFor(`!!document.querySelector(".ai-head")`, "Habez AI менеджера");
+}));
 
 await check("выход: беседы стёрты из вкладки, панель недоступна", async () => {
   assert(await js(`Object.keys(sessionStorage).some((k) => k.startsWith("habezpro.ai.chat"))`), "беседа сохранялась до выхода");

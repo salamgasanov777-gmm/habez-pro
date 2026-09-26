@@ -6,6 +6,7 @@ import { useApp } from "../store.jsx";
 import Modal from "../components/Modal.jsx";
 import { Back } from "../components/Icons.jsx";
 import { ORIGIN_LABEL, STATUS_LABEL, STATUS_PILL, ACTION_LABEL } from "./labels.js";
+import { AnalogList } from "./CompetitorParts.jsx";
 
 // Что машина знает о конкретном товаре: характеристики по группам,
 // исходное значение рядом с нормализованным.
@@ -17,8 +18,10 @@ export default function ProductIntelligence({ onChanged }) {
   const isAdmin = ["admin", "owner"].includes(user.role);
 
   const [factory, setFactory] = useState(null); // производитель и заводские документы (Phase 3.4)
+  const [analogs, setAnalogs] = useState(null); // аналоги у конкурентов (3.5)
   const load = () => api.get(`/api/ai/products/${id}/intelligence`).then(setData).catch(() => setData(false));
-  useEffect(() => { load(); api.get(`/api/ai/products/${id}/factory`).then(setFactory).catch(() => setFactory(null)); }, [id]);
+  useEffect(() => { load(); api.get(`/api/ai/products/${id}/factory`).then(setFactory).catch(() => setFactory(null));
+    api.get(`/api/ai/competitor-analogs?productId=${id}`).then(setAnalogs).catch(() => setAnalogs(null)); }, [id]);
 
   if (data === false) return <div className="empty"><h3>Товар не найден</h3><Link className="btn" to="/admin/ai/products">К списку</Link></div>;
   if (!data) return <div className="skeleton" style={{ height: 320 }} />;
@@ -76,6 +79,12 @@ export default function ProductIntelligence({ onChanged }) {
       ))}
 
       {factory?.product && <FactoryPanel data={factory} />}
+
+      {analogs && <section className="panel" data-block="our-analogs">
+        <h3>Аналоги у конкурентов</h3>
+        <p className="hint" style={{ margin: "8px 0 12px" }}>Только внесённые сведения. «Аналог» не значит «одинаковый товар»; предположение по разделу каталога подтверждением не является.</p>
+        <AnalogList items={analogs.items} side="ours" />
+      </section>}
 
       <section className="panel">
         <h3>Фасовки</h3>
