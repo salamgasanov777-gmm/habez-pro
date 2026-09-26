@@ -107,13 +107,48 @@ function Sources({ citations, highlight, msgKey }) {
   );
 }
 
-function Conflicts({ items }) {
-  if (!items?.length) return null;
+// Сравнение: строка — характеристика, столбец — товар. Таблица в своей
+// прокрутке: на телефоне страница вбок не едет.
+function Comparison({ data, onCite }) {
+  const [all, setAll] = useState(false);
+  if (!data?.rows?.length) return null;
+  const rows = all ? data.rows : data.rows.slice(0, 10);
+  return (
+    <div className="ai-compare" role="region" aria-label="Сравнение">
+      <div className="ai-compare-scroll">
+        <table>
+          <thead><tr><th>Характеристика</th>{data.products.map((p) => <th key={p}>{p}</th>)}</tr></thead>
+          <tbody>
+            {rows.map((r, i) => (
+              <tr key={i}>
+                <th scope="row">{r.label}{r.condition ? <span className="hint"> · {r.condition}</span> : null}</th>
+                {r.cells.map((c, j) => (
+                  <td key={j} className={c.missing ? "muted" : ["conflict", "unresolved"].includes(c.status) ? "ai-cell-conflict" : undefined}>
+                    {c.missing ? "нет данных" : c.values.join(" / ")}
+                    {c.refs?.slice(0, 3).map((id) => <button key={id} type="button" className="ai-ref" onClick={() => onCite(id)}>{id.slice(1)}</button>)}
+                    {["conflict", "unresolved"].includes(c.status) && <span className="hint"> · расхождение{c.decisions?.length ? ` ${c.decisions.join(", ")}` : ""}</span>}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {data.rows.length > 10 && <button type="button" className="btn btn-sm btn-ghost" onClick={() => setAll(!all)}>{all ? "Свернуть" : `Ещё ${data.rows.length - 10}`}</button>}
+    </div>
+  );
+}
+
+function Conflicts({ items, withheld }) {
+  if (!items?.length && !withheld?.length) return null;
   return (
     <div className="ai-conflict" role="note">
       <b>Расхождение в данных Habez</b>
       <span className="hint">Система не выбирает одно значение как окончательное.</span>
-      {items.slice(0, 8).map((c, i) => (
+      {withheld?.length > 0 && (
+        <span>В системе есть дополнительные внутренние данные, поэтому окончательное значение не опубликовано: {withheld.map((w) => `${w.product} · ${w.label}`).join("; ")}.</span>
+      )}
+      {(items || []).slice(0, 8).map((c, i) => (
         <div key={i}>
           {c.product} · {c.label}{c.condition ? ` (${c.condition})` : ""}{c.variant?.unit ? ` · фасовка ${c.variant.unit}` : ""}: {c.values.map((v) => (v.hidden ? "скрытое значение" : v.display)).join(" / ")}
           {c.decisions?.length ? <span className="hint"> · вопрос сверки {c.decisions.join(", ")}</span> : null}
@@ -129,6 +164,10 @@ export default function Assistant({ inStore = false }) {
   const saved = useMemo(() => load(key), [key]);
   const [conversationId, setConversationId] = useState(saved?.conversationId || newId());
   const [messages, setMessages] = useState(saved?.messages || []);
+  // Phase 3.2: о чём сейчас беседа (присылает сервер) и с какого номера
+  // продолжать ссылки [E#]: у каждого сообщения — свои номера.
+  const [agentState, setAgentState] = useState(saved?.agentState || {});
+  const [refNext, setRefNext] = useState(saved?.refNext || 0);
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const [scope, setScope] = useState(null);
@@ -147,13 +186,15 @@ export default function Assistant({ inStore = false }) {
     abortRef.current?.abort();
     setMessages(saved?.messages || []);
     setConversationId(saved?.conversationId || newId());
+    setAgentState(saved?.agentState || {});
+    setRefNext(saved?.refNext || 0);
     setOwner(key);
   }, [key, owner, saved]);
   useEffect(() => {
     api.get("/api/ai/agent/meta").then((m) => { setScope(m.scope); setUnavailable(null); })
       .catch((e) => setUnavailable(e.status === 401 && user ? "Сессия истекла — войдите заново." : e.message || "Habez AI недоступен"));
   }, [user?.id]);
-  useEffect(() => { if (owner === key) save(key, { conversationId, messages: messages.filter((m) => m.status !== "streaming") }); }, [owner, key, conversationId, messages]);
+  useEffect(() => { if (owner === key) save(key, { conversationId, agentState, refNext, messages: messages.filter((m) => m.status !== "streaming") }); }, [owner, key, conversationId, agentState, refNext, messages]);
   useEffect(() => { endRef.current?.scrollIntoView({ block: "end", behavior: "smooth" }); }, [messages]);
   useEffect(() => () => abortRef.current?.abort(), []);
 
@@ -175,17 +216,25 @@ export default function Assistant({ inStore = false }) {
     const ctrl = new AbortController();
     abortRef.current = ctrl;
     try {
-      const res = await api.streamPost("/api/ai/agent/chat", { message: question, conversationId, history }, { signal: ctrl.signal });
+      const res = await api.streamPost("/api/ai/agent/chat", { message: question, conversationId, history, state: agentState, refBase: refNext }, { signal: ctrl.signal });
       if (!res.ok) {
         const err = await res.json().catch(() => null);
         throw new Error(res.status === 401 && user ? "Сессия истекла — войдите заново." : err?.error?.message || `Ошибка ${res.status}`);
       }
       for await (const { event, data } of readSse(res)) {
         if (event === "start") patch((m) => ({ ...m, requestId: data.requestId }));
-        else if (event === "meta") patch((m) => ({ ...m, meta: data }));
+        else if (event === "status") patch((m) => ({ ...m, phase: data.text }));
+        else if (event === "meta") {
+          patch((m) => ({ ...m, meta: data }));
+          // Номера этого ответа заняты сразу: даже если ответ прервут,
+          // следующий не повторит их.
+          setRefNext((n) => Math.max(n, (data.refBase || 0) + (data.evidenceCount || 0)));
+        } else if (event === "reset") patch((m) => ({ ...m, content: "" }));
         else if (event === "delta") patch((m) => ({ ...m, content: m.content + data.text }));
         else if (event === "done") {
-          patch((m) => ({ ...m, status: "done", citations: data.citations, grounding: data.grounding, truncated: data.truncated,
+          if (data.state) setAgentState(data.state);
+          if (Number.isInteger(data.refNext)) setRefNext((n) => Math.max(n, data.refNext));
+          patch((m) => ({ ...m, status: "done", citations: data.citations, grounding: data.grounding, truncated: data.truncated, mode: data.mode,
             ...(data.withheld ? { withheld: true, content: "Ответ скрыт: в нём оказались данные, которые вашему уровню доступа не положены. Задайте вопрос иначе или обратитесь к администратору." } : {}) }));
         } else if (event === "error") patch((m) => ({ ...m, status: "error", error: data.message }));
       }
@@ -215,6 +264,8 @@ export default function Assistant({ inStore = false }) {
     setBusy(false);
     setMessages([]);
     setConversationId(newId());
+    setAgentState({});
+    setRefNext(0);
     setText("");
     inputRef.current?.focus();
   }
@@ -253,9 +304,17 @@ export default function Assistant({ inStore = false }) {
         {messages.map((m, i) => (m.role === "user"
           ? <div key={i} className="ai-msg user">{m.content}</div>
           : (
-            <div key={m.id || i} className="ai-msg bot" data-status={m.status}>
-              <Conflicts items={m.meta?.conflicts} />
-              {m.content ? <Rich text={m.content} onCite={(id) => cite(i, id)} /> : m.status === "streaming" ? <div className="ai-typing"><span /><span /><span /></div> : null}
+            <div key={m.id || i} className="ai-msg bot" data-status={m.status} data-mode={m.mode || m.meta?.mode || ""}>
+              <Conflicts items={m.meta?.mode === "COMPARISON" ? [] : m.meta?.conflicts} withheld={m.meta?.withheldProperties} />
+              {m.content ? <Rich text={m.content} onCite={(id) => cite(i, id)} /> : m.status === "streaming" ? (
+                <div className="ai-typing-row"><div className="ai-typing"><span /><span /><span /></div>{m.phase && <span className="hint">{m.phase}</span>}</div>
+              ) : null}
+              {m.meta?.mode === "COMPARISON" && <Comparison data={m.meta.comparison} onCite={(id) => cite(i, id)} />}
+              {m.meta?.clarification?.options?.length > 0 && m.status !== "streaming" && (
+                <div className="ai-examples ai-clarify">
+                  {m.meta.clarification.options.map((o) => <button key={o} type="button" className="chip" onClick={() => send(o)} disabled={busy}>{o}</button>)}
+                </div>
+              )}
               {m.status === "error" && (
                 <div className="ai-error">{m.error} <button type="button" className="btn btn-sm" onClick={retry} disabled={busy}>Повторить</button></div>
               )}
@@ -266,6 +325,9 @@ export default function Assistant({ inStore = false }) {
               )}
               {!m.withheld && !m.grounding?.unsupported?.length && !m.grounding?.mismatched?.length && m.grounding?.uncited?.length > 0 && (
                 <p className="hint">Часть значений приведена без ссылки на источник — сверьте их по списку ниже.</p>
+              )}
+              {!m.withheld && m.grounding?.fromHistory?.length > 0 && (
+                <p className="hint">Значения из прошлого ответа в этом ответе не перепроверены: {m.grounding.fromHistory.join(", ")}.</p>
               )}
               <Sources citations={m.citations} msgKey={i} highlight={highlight?.startsWith(`${i}:`) ? highlight.slice(String(i).length + 1) : null} />
             </div>

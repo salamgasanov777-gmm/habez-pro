@@ -737,6 +737,16 @@ h3 { font-size: 16px; }
 .ai-conflict { display: grid; gap: 4px; background: var(--gold-soft); border: 1px solid rgba(185,114,42,.35); border-radius: var(--r); padding: 11px 14px; font-size: 13.5px; }
 .ai-warn { margin: 0; font-size: 13px; color: var(--warn); }
 .ai-secret { color: var(--danger); font-weight: 600; }
+.ai-typing-row { display: flex; align-items: center; gap: 10px; }
+.ai-clarify { margin-top: 2px; }
+.ai-compare { display: grid; gap: 6px; }
+.ai-compare-scroll { overflow-x: auto; border: 1px solid var(--line); border-radius: var(--r); }
+.ai-compare table { border-collapse: collapse; width: 100%; font-size: 13.5px; min-width: 420px; }
+.ai-compare th, .ai-compare td { padding: 7px 10px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+.ai-compare thead th { background: var(--surface-2); font-weight: 640; }
+.ai-compare tbody th { font-weight: 560; color: var(--ink-2); width: 34%; }
+.ai-compare tr:last-child > * { border-bottom: 0; }
+.ai-cell-conflict { background: var(--gold-soft); }
 .ai-error { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; color: var(--danger); font-size: 14px; }
 .ai-typing { display: inline-flex; gap: 5px; padding: 4px 0; }
 .ai-typing span { width: 7px; height: 7px; border-radius: 50%; background: var(--ink-3); animation: ai-dot 1s infinite ease-in-out; }
