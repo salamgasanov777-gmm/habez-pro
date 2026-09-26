@@ -1,6 +1,7 @@
 # Habez AI — Phase 3.2: Knowledge Agent
 
-**PHASE 3.2: COMPLETED** — 26 сентября 2026, ветка `feat/habez-ai-3-2` (без коммитов).
+**PHASE 3.2: COMPLETED** — 26 сентября 2026, ветка `feat/habez-ai-3-2`, коммиты `023b7f7…4cecbd8`.
+Продолжение — Phase 3.3, Product Intelligence: [HABEZ-AI-PHASE-3-3-PRODUCT-INTELLIGENCE.md](HABEZ-AI-PHASE-3-3-PRODUCT-INTELLIGENCE.md).
 
 Помощник Phase 3.1 получал заранее собранный контекст. Теперь это агент:
 сам разбирает вопрос, находит товары и характеристики, учитывает условия и
