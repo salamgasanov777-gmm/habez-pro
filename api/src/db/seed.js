@@ -125,7 +125,10 @@ tx(() => {
     const variantId = insert("variants", {
       tenant_id: tenant.id, product_id: productId, unit: p.unit || "шт",
       pack_size: pack.size, pack_unit: pack.unit,
-      per_pallet: pack.unit === "кг" && pack.size >= 25 ? 40 : null,
+      // Количество на поддоне завод даёт не для всех товаров; в исходных
+      // карточках его нет. Неизвестное остаётся пустым — раньше здесь
+      // подставлялось 40 любому мешку от 25 кг, и покупатель видел выдумку.
+      per_pallet: null,
       is_default: 1, sku: `HGZ-${String(productId).padStart(3, "0")}`,
     });
 

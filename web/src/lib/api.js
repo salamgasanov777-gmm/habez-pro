@@ -69,6 +69,23 @@ export async function api(path, options = {}) {
   return payload;
 }
 
+// Потоковый ответ (text/event-stream): возвращает Response как есть, чтобы
+// страница читала поток сама. Истёкший токен обновляется так же, как у api().
+export async function streamPost(path, body, { signal } = {}) {
+  let res = await raw(path, { method: "POST", body, signal });
+  if (res.status === 401) {
+    refreshing = refreshing || fetch("/api/auth/refresh", { method: "POST", credentials: "include" })
+      .then((r) => (r.ok ? r.json() : null))
+      .finally(() => { refreshing = null; });
+    const data = await refreshing;
+    if (data?.accessToken) {
+      setToken(data.accessToken);
+      res = await raw(path, { method: "POST", body, signal });
+    }
+  }
+  return res;
+}
+
 export const get = (path, options) => api(path, options);
 export const post = (path, body, options) => api(path, { ...options, method: "POST", body });
 export const patch = (path, body) => api(path, { method: "PATCH", body });

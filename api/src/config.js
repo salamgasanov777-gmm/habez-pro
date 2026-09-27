@@ -94,6 +94,57 @@ export const config = {
     vapidSubject: env.VAPID_SUBJECT || "mailto:salam-gasanov@mail.ru",
   },
 
+  // Habez AI. Фаза 1 — только слой знаний (источники и факты), без модели
+  // и без выхода в интернет. Выключенный раздел не регистрирует маршруты
+  // вовсе: работающий каталог о нём не знает.
+  // Модель наблюдений (Phase 2.2B) включается отдельно: пока она выключена,
+  // маршрутов /api/ai/observations* нет, а старый путь (ai_product_specs)
+  // работает как раньше. Таблицы миграция создаёт в любом случае — пустые.
+  // AI_EVIDENCE_READ_MODE — чем отвечают старые /api/ai/specs, /intelligence,
+  // /compare: legacy (строки ai_product_specs, по умолчанию) или evidence
+  // (проекция наблюдений, те же поля + блок evidence). evidence действует,
+  // только если AI_EVIDENCE_ENABLED=1; иначе — legacy.
+  ai: {
+    // Habez AI Agent (Phase 3.1): чат по товарам на данных слоя знаний.
+    // Только чтение. Ключ провайдера — только из окружения, в коде и в
+    // репозитории его нет. provider: openrouter (по умолчанию, правило
+    // владельца: нейросеть — через OpenRouter), anthropic, mock (без сети —
+    // для тестов и проверки без ключа).
+    agent: {
+      enabled: bool(env.AI_AGENT_ENABLED, false),
+      // Покупатели и гости: только при AI_AGENT_PUBLIC=1 (каждый ответ стоит
+      // денег). Сотрудникам — всегда, когда агент включён.
+      public: bool(env.AI_AGENT_PUBLIC, false),
+      provider: (env.AI_PROVIDER || "openrouter").toLowerCase(),
+      model: env.AI_MODEL || "anthropic/claude-sonnet-5",
+      baseUrl: (env.AI_BASE_URL || "https://openrouter.ai/api").replace(/\/$/, ""),
+      apiKey: env.OPENROUTER_API_KEY || env.ANTHROPIC_API_KEY || "",
+      maxTokens: Number(env.AI_MAX_TOKENS || 4000),
+      timeoutMs: Number(env.AI_TIMEOUT_MS || 90000),
+      // Защита от расходов: вопросов за окно (сотрудник / гость и
+      // покупатель), одновременных ответов на одного человека, всего ответов
+      // гостям и покупателям за сутки (0 — без общего предела), длина
+      // истории беседы, которую сервер передаёт модели.
+      rateStaff: Number(env.AI_RATE_STAFF || 60),
+      ratePublic: Number(env.AI_RATE_PUBLIC || 12),
+      rateWindowMin: Number(env.AI_RATE_WINDOW_MIN || 10),
+      maxConcurrent: Number(env.AI_MAX_CONCURRENT || 2),
+      publicDailyMax: Number(env.AI_PUBLIC_DAILY_MAX || 300),
+      historyMaxChars: Number(env.AI_HISTORY_MAX_CHARS || 12000),
+      // Бюджет цикла инструментов (Phase 3.2): вызовов инструментов на ответ
+      // (план + модель), ходов модели, записей в пакете доказательств, знаков
+      // контекста и общее время на ответ.
+      maxToolCalls: Number(env.AI_AGENT_MAX_TOOL_CALLS || 8),
+      maxTurns: Number(env.AI_AGENT_MAX_TURNS || 3),
+      maxEvidence: Number(env.AI_AGENT_MAX_EVIDENCE || 160),
+      maxContextChars: Number(env.AI_AGENT_MAX_CONTEXT_CHARS || 48000),
+      totalTimeoutMs: Number(env.AI_AGENT_TOTAL_TIMEOUT_MS || 120000),
+    },
+    enabled: bool(env.AI_ENABLED, false),
+    evidence: bool(env.AI_EVIDENCE_ENABLED, false),
+    readMode: bool(env.AI_EVIDENCE_ENABLED, false) && String(env.AI_EVIDENCE_READ_MODE || "legacy").toLowerCase() === "evidence" ? "evidence" : "legacy",
+  },
+
   logLevel: env.LOG_LEVEL || (env.NODE_ENV === "production" ? "info" : "debug"),
 };
 

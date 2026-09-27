@@ -1,0 +1,567 @@
+// Habez AI — проверка интерфейса в настоящем браузере (Phase 3.1).
+//
+//   npm run e2e:ai          (из корня: сборка витрины + этот сценарий)
+//
+// Без новых зависимостей: браузер Chromium (Chrome, Playwright-сборка или
+// CHROME_PATH) управляется по протоколу DevTools через встроенный WebSocket.
+// Сервер Habez поднимается здесь же на тестовой базе во временной папке,
+// «модель» — поддельный Messages API (api/test/helpers/fake-llm.js).
+//
+// Вход без ручного ввода пароля: администратор — готовой сессией
+// (refresh-cookie из тестовой базы), менеджер — через форму входа с
+// паролем, который сценарий сам создал в тестовой базе. Рабочая база и
+// настоящие учётные записи не используются.
+import { spawn } from "node:child_process";
+import { mkdtempSync, mkdirSync, existsSync, writeFileSync, rmSync } from "node:fs";
+import { tmpdir, homedir } from "node:os";
+import { join, resolve, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
+import { randomBytes } from "node:crypto";
+
+const root = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
+const work = mkdtempSync(join(tmpdir(), "habez-e2e-"));
+const shots = process.env.E2E_SHOTS || join(work, "shots");
+mkdirSync(shots, { recursive: true });
+if (!existsSync(join(root, "web/dist/index.html"))) {
+  console.error("Нет сборки витрины: npm --prefix web run build");
+  process.exit(2);
+}
+
+// ── Сервер Habez на тестовой базе ──────────────────────────────────────────
+const { startFakeLlm } = await import(join(root, "api/test/helpers/fake-llm.js"));
+const fake = await startFakeLlm();
+Object.assign(process.env, {
+  DATABASE_FILE: join(work, "hgz.db"), UPLOAD_DIR: join(work, "uploads"), NODE_ENV: "test", PAYMENT_PROVIDER: "none", LOG_LEVEL: "silent",
+  AI_ENABLED: "1", AI_EVIDENCE_ENABLED: "1", AI_AGENT_ENABLED: "1", AI_AGENT_PUBLIC: "1",
+  AI_PROVIDER: "openrouter", AI_BASE_URL: fake.url, OPENROUTER_API_KEY: "test-key-not-a-secret", AI_TIMEOUT_MS: "8000",
+  AI_RATE_STAFF: "1000", AI_RATE_PUBLIC: "1000", AI_PUBLIC_DAILY_MAX: "0",
+});
+delete process.env.ANTHROPIC_API_KEY;
+const { prepareAiDb, LEVEL_VALUES } = await import(join(root, "api/test/helpers/ai-fixture.js"));
+const aiIds = await prepareAiDb();
+// 3.5: синтетические конкуренты (ТестСмесь, Пример-Гипс…) — только в этой
+// временной базе.
+const { seedCompetitors } = await import(join(root, "api/test/helpers/competitor-fixture.js"));
+const cx = await seedCompetitors();
+const { insert, run, get } = await import(join(root, "api/src/db/index.js"));
+const { hashPassword, randomToken, sha256 } = await import(join(root, "api/src/lib/crypto.js"));
+const { config } = await import(join(root, "api/src/config.js"));
+const { build } = await import(join(root, "api/src/server.js"));
+
+const managerPassword = randomBytes(15).toString("base64url");
+const managerId = insert("users", { tenant_id: 1, email: "e2e-manager@test.habez.local", name: "E2E менеджер", role: "manager", status: "active", password_hash: hashPassword(managerPassword) });
+const adminId = insert("users", { tenant_id: 1, email: "e2e-admin@test.habez.local", name: "E2E админ", role: "admin", status: "active" });
+// Готовая сессия администратора: как после входа, но без пароля.
+const session = (userId) => {
+  const token = randomToken(32);
+  insert("sessions", { user_id: userId, token_hash: sha256(token), user_agent: "e2e", ip: "127.0.0.1", expires_at: new Date(Date.now() + 3600e3).toISOString() });
+  return token;
+};
+
+const app = await build();
+await app.listen({ port: 0, host: "127.0.0.1" });
+const base = `http://127.0.0.1:${app.server.address().port}`;
+
+// ── Браузер ────────────────────────────────────────────────────────────────
+const candidates = [
+  process.env.CHROME_PATH,
+  join(homedir(), "Library/Caches/ms-playwright/chromium_headless_shell-1234/chrome-headless-shell-mac-arm64/chrome-headless-shell"),
+  "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+  "/usr/bin/google-chrome", "/usr/bin/chromium", "/usr/bin/chromium-browser",
+].filter(Boolean);
+const chromePath = candidates.find((p) => existsSync(p));
+if (!chromePath) { console.error("Не найден Chromium: укажите CHROME_PATH"); process.exit(2); }
+const chrome = spawn(chromePath, ["--headless=new", "--remote-debugging-port=0", `--user-data-dir=${join(work, "profile")}`,
+  "--no-first-run", "--no-default-browser-check", "--disable-gpu", "--hide-scrollbars", "about:blank"], { stdio: ["ignore", "ignore", "pipe"] });
+const wsBrowser = await new Promise((ok, fail) => {
+  let buf = "";
+  chrome.stderr.on("data", (d) => { buf += d; const m = buf.match(/DevTools listening on (ws:\/\/\S+)/); if (m) ok(m[1]); });
+  setTimeout(() => fail(new Error("браузер не запустился")), 15000);
+});
+const port = new URL(wsBrowser).port;
+const target = (await (await fetch(`http://127.0.0.1:${port}/json/list`)).json()).find((t) => t.type === "page");
+
+const ws = new WebSocket(target.webSocketDebuggerUrl);
+await new Promise((r) => ws.addEventListener("open", r));
+let seq = 0;
+const pending = new Map();
+const listeners = new Set();
+ws.addEventListener("message", (ev) => {
+  const msg = JSON.parse(ev.data);
+  if (msg.id && pending.has(msg.id)) {
+    const { ok, fail } = pending.get(msg.id);
+    pending.delete(msg.id);
+    if (msg.error) fail(new Error(msg.error.message)); else ok(msg.result);
+  } else for (const l of listeners) l(msg);
+});
+const cdp = (method, params = {}) => new Promise((ok, fail) => { const id = ++seq; pending.set(id, { ok, fail }); ws.send(JSON.stringify({ id, method, params })); });
+await cdp("Page.enable");
+await cdp("Runtime.enable");
+await cdp("Network.enable");
+const consoleErrors = [];
+listeners.add((m) => {
+  if (m.method === "Runtime.exceptionThrown") consoleErrors.push(m.params.exceptionDetails?.exception?.description || m.params.exceptionDetails?.text);
+});
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const js = async (expr) => {
+  const r = await cdp("Runtime.evaluate", { expression: expr, awaitPromise: true, returnByValue: true });
+  if (r.exceptionDetails) throw new Error(`${expr.slice(0, 80)}: ${r.exceptionDetails.exception?.description || r.exceptionDetails.text}`);
+  return r.result.value;
+};
+async function waitFor(expr, what, timeout = 8000) {
+  const t0 = Date.now();
+  while (Date.now() - t0 < timeout) {
+    try { const v = await js(expr); if (v) return v; } catch { /* страница ещё грузится */ }
+    await sleep(60);
+  }
+  throw new Error(`не дождался: ${what}`);
+}
+async function go(path) {
+  const loaded = new Promise((r) => { const l = (m) => { if (m.method === "Page.loadEventFired") { listeners.delete(l); r(); } }; listeners.add(l); });
+  await cdp("Page.navigate", { url: base + path });
+  await loaded;
+}
+const viewport = (width, height, mobile = false) => cdp("Emulation.setDeviceMetricsOverride", { width, height, deviceScaleFactor: 1, mobile });
+async function shot(name) {
+  const { data } = await cdp("Page.captureScreenshot", { format: "png", captureBeyondViewport: false });
+  writeFileSync(join(shots, `${name}.png`), Buffer.from(data, "base64"));
+}
+// Ввод в поле React: через «родной» setter и событие input.
+const typeInto = (sel, text) => js(`(() => { const el = document.querySelector(${JSON.stringify(sel)});
+  const set = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(el), "value").set; set.call(el, ${JSON.stringify(text)});
+  el.dispatchEvent(new Event("input", { bubbles: true })); return true; })()`);
+const clickText = (sel, text) => js(`(() => { const el = [...document.querySelectorAll(${JSON.stringify(sel)})].find((e) => e.textContent.trim().startsWith(${JSON.stringify(text)}));
+  if (!el) return false; el.click(); return true; })()`);
+const ask = async (q) => { await typeInto(".ai-compose textarea", q); await waitFor(`!document.querySelector(".ai-compose button[type=submit]")?.disabled`, "кнопка «Отправить»"); await clickText(".ai-compose button", "Отправить"); };
+const lastBot = `[...document.querySelectorAll(".ai-msg.bot")].at(-1)`;
+const idle = () => waitFor(`!!document.querySelector(".ai-compose button[type=submit]") && ${lastBot}?.dataset.status !== "streaming"`, "ответ завершён", 12000);
+const noHorizontalScroll = () => js("document.documentElement.scrollWidth <= window.innerWidth + 1");
+// Проверки 3.5 делают много запросов подряд. Сервер ограничивает 300 запросов
+// в минуту на адрес (вместе со статикой), поэтому они идут со своего адреса
+// (сервер верит X-Forwarded-For от loopback) — остальной сценарий этот
+// лимит не делит.
+let ipSeq = 0;
+async function ownAddress(fn) {
+  await cdp("Network.setExtraHTTPHeaders", { headers: { "x-forwarded-for": `10.35.0.${++ipSeq}` } });
+  try { return await fn(); } finally { await cdp("Network.setExtraHTTPHeaders", { headers: {} }); }
+}
+
+// ── Сценарии ──────────────────────────────────────────────────────────────
+const results = [];
+async function check(name, fn) {
+  try { await fn(); results.push({ name, ok: true }); console.log(`PASS ${name}`); } catch (e) {
+    results.push({ name, ok: false, error: e.message }); console.log(`FAIL ${name}\n     ${e.message}`);
+    if (process.env.E2E_DEBUG) {
+      const info = await js(`JSON.stringify({ at: location.pathname, bot: ${lastBot}?.dataset.status, botText: ${lastBot}?.textContent.slice(0, 160),
+        wide: [...document.querySelectorAll("body *")].filter((el) => el.getBoundingClientRect().right > innerWidth + 1).slice(0, 6).map((el) => el.tagName + "." + el.className),
+        body: document.body.innerText.slice(0, 200) })`).catch((x) => x.message);
+      console.log(`     ${info}`);
+      console.log(`     js errors: ${JSON.stringify(consoleErrors.slice(-3)).slice(0, 600)}`);
+      console.log(`     html: ${await js("document.documentElement.outerHTML.slice(0, 400)").catch((x) => x.message)}`);
+      console.log(`     res: ${await js("JSON.stringify(performance.getEntriesByType('resource').slice(-6).map((r) => [r.name.replace(location.origin, ''), r.responseStatus]))").catch((x) => x.message)}`);
+      console.log(`     sw: ${await js("navigator.serviceWorker?.controller?.scriptURL || 'none'").catch((x) => x.message)}`);
+    }
+    await shot(`fail-${results.length}`).catch(() => {});
+  }
+}
+const assert = (cond, msg) => { if (!cond) throw new Error(msg); };
+
+for (const [label, w, h, mobile] of [["desktop", 1280, 900, false], ["mobile-375", 375, 812, true]]) {
+  await viewport(w, h, mobile);
+  await cdp("Network.clearBrowserCookies");
+  await cdp("Network.setCookie", { name: "hgz_rt", value: session(adminId), url: `${base}/api/auth/`, path: "/api/auth", httpOnly: true });
+  fake.mode = "cite";
+
+  await check(`${label}: администратор — «Habez AI» в меню, страница открывается, уровень «все данные»`, async () => {
+    await go("/admin");
+    await waitFor(`[...document.querySelectorAll(".admin a")].some((a) => a.textContent.includes("Habez AI"))`, "пункт меню");
+    await js(`[...document.querySelectorAll(".admin a")].find((a) => a.textContent.includes("Habez AI")).click()`);
+    await waitFor(`location.pathname === "/admin/assistant" && !!document.querySelector(".ai-chat")`, "страница Habez AI");
+    await waitFor(`document.querySelector(".ai-head .hint")?.textContent.includes("все данные, включая конфиденциальные")`, "уровень доступа");
+    assert(await js(`!!document.querySelector(".ai-compose textarea") && document.querySelector(".ai-compose button[type=submit]").disabled`), "поле ввода и неактивная «Отправить» при пустом поле");
+    assert(await noHorizontalScroll(), "горизонтальная прокрутка");
+    await shot(`${label}-01-empty`);
+  });
+
+  await check(`${label}: отправка, поток с «Стоп», блок расхождений, ссылки и источники`, async () => {
+    await js(`sessionStorage.clear(), true`);
+    await clickText("button", "Новая беседа");
+    fake.mode = "slow";
+    await ask("Какая прочность на изгиб у ШОВ?");
+    await waitFor(`[...document.querySelectorAll(".ai-compose button")].some((b) => b.textContent === "Стоп")`, "кнопка «Стоп» во время потока");
+    await waitFor(`${lastBot}?.querySelector(".ai-text")?.textContent.length > 20`, "текст идёт потоком");
+    const partial = await js(`${lastBot}.querySelector(".ai-text").textContent.length`);
+    await idle();
+    assert(await js(`${lastBot}.querySelector(".ai-text").textContent.length`) > partial, "текст дописывался");
+    assert(await js(`${lastBot}.querySelectorAll(".ai-ref:not(.static)").length`) > 0, "ссылки [E#] в тексте");
+    assert(await js(`${lastBot}.querySelectorAll(".ai-source").length`) > 0, "список источников");
+    assert(await js(`${lastBot}.querySelector(".ai-sources").textContent.includes("конфиденциально")`), "пометка «конфиденциально» у источника администратора");
+    fake.mode = "cite";
+    await ask("Какая прочность ШОВ?");
+    await idle();
+    assert(await js(`${lastBot}.querySelector(".ai-conflict")?.textContent.includes("Расхождение в данных Habez")`), "блок расхождений");
+    assert(await js(`${lastBot}.querySelector(".ai-conflict").textContent.includes("вопрос сверки D4")`), "номер вопроса сверки");
+    await shot(`${label}-02-conflict`);
+  });
+
+  await check(`${label}: источники — «Ещё», ссылка подсвечивает свой источник, длинные строки не ломают вёрстку`, async () => {
+    await ask("Расскажи про ШОВ");
+    await idle();
+    const before = await js(`${lastBot}.querySelectorAll(".ai-source").length`);
+    assert(before === 6, `свёрнуто до 6, а не ${before}`);
+    assert(await js(`[...${lastBot}.querySelectorAll(".ai-sources button")].some((b) => b.textContent.startsWith("Ещё"))`), "кнопка «Ещё»");
+    await js(`[...${lastBot}.querySelectorAll(".ai-sources button")].find((b) => b.textContent.startsWith("Ещё")).click()`);
+    await waitFor(`${lastBot}.querySelectorAll(".ai-source").length > 6`, "список развернулся");
+    const lastRef = await js(`[...${lastBot}.querySelectorAll(".ai-text .ai-ref")].at(-1).textContent`);
+    await js(`[...${lastBot}.querySelectorAll(".ai-text .ai-ref")].at(-1).click()`);
+    await waitFor(`${lastBot}.querySelector(".ai-source.on .ai-ref")?.textContent === ${JSON.stringify(lastRef)}`, "подсвечен источник этой ссылки");
+    assert(await noHorizontalScroll(), "горизонтальная прокрутка из-за источников");
+    assert(await js(`[...document.querySelectorAll(".ai-source")].every((s) => s.scrollWidth <= s.clientWidth + 1)`), "источник шире своей строки");
+    await shot(`${label}-03-sources`);
+  });
+
+  await check(`${label}: «Стоп» останавливает ответ и запрос к модели; следующий вопрос работает`, async () => {
+    fake.mode = "slow";
+    await ask("Какие характеристики у ШОВ?");
+    await waitFor(`${lastBot}?.querySelector(".ai-text")?.textContent.length > 10`, "начало ответа");
+    await clickText(".ai-compose button", "Стоп");
+    await waitFor(`!!document.querySelector(".ai-compose button[type=submit]")`, "кнопка вернулась к «Отправить»");
+    assert(await js(`${lastBot}.textContent.includes("Остановлено")`), "пометка «Остановлено»");
+    const rec = fake.last();
+    for (let i = 0; i < 40 && !rec.aborted; i += 1) await sleep(50);
+    assert(rec.aborted && !rec.finished, "запрос к модели оборван");
+    fake.mode = "cite";
+    await ask("Какие фасовки есть у ГКЛ?");
+    await idle();
+    assert(await js(`${lastBot}.dataset.status === "done" && ${lastBot}.textContent.includes("лист 9,5 мм")`), "повтор после «Стоп»");
+    await shot(`${label}-04-after-stop`);
+  });
+
+  await check(`${label}: длинный ответ — целиком, с пометкой об обрезке, без горизонтальной прокрутки`, async () => {
+    fake.mode = "long";
+    await ask("Какие характеристики у ШОВ?");
+    await idle();
+    assert(await js(`${lastBot}.querySelector(".ai-text").textContent.length`) > 3000, "длина ответа");
+    assert(await js(`${lastBot}.textContent.includes("Ответ обрезан по длине")`), "пометка об обрезке");
+    assert(await noHorizontalScroll(), "горизонтальная прокрутка");
+    const inputVisible = await js(`(() => { const r = document.querySelector(".ai-compose textarea").getBoundingClientRect(); return r.bottom <= innerHeight && r.top >= 0; })()`);
+    assert(inputVisible, "поле ввода видно после длинного ответа");
+    await shot(`${label}-05-long`);
+  });
+
+  await check(`${label}: ошибка модели — понятный текст и «Повторить»`, async () => {
+    fake.mode = "error500";
+    await ask("Расскажи про КОРОЕД");
+    await waitFor(`${lastBot}?.querySelector(".ai-error")?.textContent.includes("не смог ответить")`, "текст ошибки");
+    await shot(`${label}-06-error`);
+    fake.mode = "cite";
+    await clickText(".ai-error button", "Повторить");
+    await idle();
+    assert(await js(`${lastBot}.dataset.status === "done"`), "повтор удался");
+  });
+
+  await check(`${label}: 3.2 — беседа из четырёх реплик до таблицы сравнения, номера источников не повторяются`, async () => {
+    await clickText("button", "Новая беседа");
+    fake.mode = "cite";
+    for (const q of ["Расскажи про ШОВ", "А какая у него прочность?", "А у Стандарта?", "Сравни их"]) {
+      await ask(q);
+      await idle();
+    }
+    assert(await js(`${lastBot}.dataset.mode === "COMPARISON"`), "режим сравнения");
+    await waitFor(`!!${lastBot}.querySelector(".ai-compare table")`, "таблица сравнения");
+    assert(await js(`[...${lastBot}.querySelectorAll(".ai-compare thead th")].map((t) => t.textContent).join("|") === "Характеристика|ШОВ|СТАНДАРТ"`), "столбцы — ШОВ и СТАНДАРТ");
+    // У каждого сообщения свои номера: множества не пересекаются и растут.
+    const sets = await js(`[...document.querySelectorAll(".ai-msg.bot")].map((m) => [...m.querySelectorAll(".ai-text .ai-ref, .ai-compare .ai-ref")].map((b) => Number(b.textContent)))`);
+    const nonEmpty = sets.filter((x) => x.length);
+    assert(nonEmpty.length >= 3, "ссылки в нескольких сообщениях");
+    for (let i = 1; i < nonEmpty.length; i += 1) assert(Math.min(...nonEmpty[i]) > Math.max(...nonEmpty[i - 1]), `номера сообщения ${i + 1} не продолжают предыдущее`);
+    // Номер в таблице ведёт к источнику этого сообщения.
+    const ref = await js(`${lastBot}.querySelector(".ai-compare .ai-ref").textContent`);
+    await js(`${lastBot}.querySelector(".ai-compare .ai-ref").click()`);
+    await waitFor(`${lastBot}.querySelector(".ai-source.on .ai-ref")?.textContent === ${JSON.stringify(ref)}`, "источник из таблицы подсвечен");
+    assert(await noHorizontalScroll(), "горизонтальная прокрутка страницы из-за таблицы");
+    await shot(`${label}-08-comparison`);
+  });
+
+  await check(`${label}: 3.2 — уточнение кнопками, ответ продолжает вопрос`, async () => {
+    await clickText("button", "Новая беседа");
+    const n = fake.requests.length;
+    await ask("Сколько листов ГКЛ на поддоне?");
+    await idle();
+    await waitFor(`[...${lastBot}.querySelectorAll(".ai-clarify .chip")].map((b) => b.textContent).join("|") === "лист 9,5 мм|лист 12,5 мм"`, "варианты уточнения");
+    assert(fake.requests.length === n, "модель не вызывалась");
+    assert(!(await js(`!!${lastBot}.querySelector(".ai-warn")`)), "под уточнением нет предупреждения проверки");
+    await shot(`${label}-09-clarify`);
+    fake.mode = "cite";
+    await js(`[...${lastBot}.querySelectorAll(".ai-clarify .chip")].find((b) => b.textContent === "лист 12,5 мм").click()`);
+    await waitFor(`document.querySelectorAll(".ai-msg.bot").length === 2`, "ответ на уточнение");
+    await idle();
+    const t = await js(`${lastBot}.textContent`);
+    assert(t.includes("12,5") && !t.includes("63"), "ответ — про 12,5 мм, без чужой фасовки");
+  });
+
+  await check(`${label}: 3.2 — понятное состояние загрузки, без внутренних шагов`, async () => {
+    fake.mode = "slow";
+    await ask("Какая прочность сцепления у ШОВ?");
+    await waitFor(`/Ищу данные|Проверяю источники/.test(${lastBot}?.querySelector(".ai-typing-row")?.textContent || "")`, "подпись «Ищу данные…» или «Проверяю источники…»");
+    assert(!(await js(`/get_product|search_knowledge|tool/.test(document.querySelector(".ai-log").textContent)`)), "названия инструментов на экране");
+    await clickText(".ai-compose button", "Стоп");
+    await waitFor(`!!document.querySelector(".ai-compose button[type=submit]")`, "остановлено");
+    fake.mode = "cite";
+  });
+
+  await check(`${label}: 3.3 — паспорт, подбор с карточками пригодности, применение, сравнение по задаче`, async () => {
+    await clickText("button", "Новая беседа");
+    fake.mode = "cite";
+    await ask("Расскажи про ШОВ");
+    await idle();
+    assert(await js(`${lastBot}.dataset.mode === "PRODUCT_PROFILE"`), "режим паспорта");
+    assert(await noHorizontalScroll(), "паспорт шире экрана");
+    await ask("Что использовать для швов ГКЛ?");
+    await idle();
+    assert(await js(`${lastBot}.dataset.mode === "PRODUCT_SELECTION"`), "режим подбора");
+    await waitFor(`${lastBot}.querySelectorAll(".ai-suit-card").length > 0`, "карточки пригодности");
+    assert(await js(`[...${lastBot}.querySelectorAll(".ai-suit-card")].some((c) => c.dataset.status === "SUPPORTED" && c.textContent.includes("ШОВ"))`), "ШОВ — подтверждено данными");
+    assert(await js(`!/лучш/i.test(${lastBot}.querySelector(".ai-suit").textContent)`), "в карточках нет «лучший»");
+    if (await js(`[...${lastBot}.querySelectorAll(".ai-suit button")].some((b) => b.textContent.startsWith("Ещё"))`)) {
+      const n = await js(`${lastBot}.querySelectorAll(".ai-suit-card").length`);
+      await js(`[...${lastBot}.querySelectorAll(".ai-suit button")].find((b) => b.textContent.startsWith("Ещё")).click()`);
+      await waitFor(`${lastBot}.querySelectorAll(".ai-suit-card").length > ${n}`, "«Ещё» раскрывает карточки");
+    }
+    const ref = await js(`${lastBot}.querySelector(".ai-suit-card .ai-ref")?.textContent || ""`);
+    if (ref) {
+      await js(`${lastBot}.querySelector(".ai-suit-card .ai-ref").click()`);
+      await waitFor(`${lastBot}.querySelector(".ai-source.on .ai-ref")?.textContent === ${JSON.stringify(ref)}`, "номер в карточке ведёт к источнику");
+    }
+    assert(await noHorizontalScroll(), "карточки шире экрана");
+    await js(`${lastBot}.scrollIntoView({ block: "start" }), true`); await sleep(300);
+    await shot(`${label}-10-selection`);
+    await ask("Как применять КОРОЕД?");
+    await idle();
+    assert(await js(`${lastBot}.dataset.mode === "PRODUCT_APPLICATION" && ${lastBot}.textContent.includes("В данных Habez нет: расход")`), "применение и «чего нет»");
+    await ask("Сравни ШОВ и Стандарт для ГКЛ");
+    await idle();
+    assert(await js(`${lastBot}.dataset.mode === "COMPARISON" && !!${lastBot}.querySelector(".ai-compare table") && ${lastBot}.querySelectorAll(".ai-suit-card").length === 2`), "таблица и две карточки пригодности");
+    assert(await noHorizontalScroll(), "сравнение шире экрана");
+    await js(`${lastBot}.scrollIntoView({ block: "start" }), true`); await sleep(300);
+    await shot(`${label}-11-compare-task`);
+  });
+
+  await check(`${label}: 3.4 — профиль завода, товар → завод, товары завода, документы, номер ведёт к документу, противоречие`, async () => {
+    await clickText("button", "Новая беседа");
+    fake.mode = "cite";
+    await ask("Что известно о заводе?");
+    await idle();
+    assert(await js(`${lastBot}.dataset.mode === "FACTORY_PROFILE" && !!${lastBot}.querySelector(".ai-fac")`), "карточка завода");
+    assert(await js(`${lastBot}.querySelector(".ai-fac").textContent.includes("адрес в реквизитах организации")`), "адрес — как адрес организации");
+    assert(await noHorizontalScroll(), "карточка завода шире экрана");
+    await js(`${lastBot}.scrollIntoView({ block: "start" }), true`); await sleep(300);
+    await shot(`${label}-12-factory-profile`);
+    await ask("Где производится ШОВ?");
+    await idle();
+    assert(await js(`${lastBot}.dataset.mode === "PRODUCT_FACTORY"`), "режим товар → завод");
+    await waitFor(`[...${lastBot}.querySelectorAll(".ai-suit-card")].some((c) => c.dataset.status === "INFERRED" && c.textContent.includes("косвенно"))`, "ШОВ — косвенно");
+    const ref = await js(`${lastBot}.querySelector(".ai-suit-card .ai-ref")?.textContent || ""`);
+    assert(ref, "у связи есть номер источника");
+    await js(`${lastBot}.querySelector(".ai-suit-card .ai-ref").click()`);
+    await waitFor(`${lastBot}.querySelector(".ai-source.on .ai-ref")?.textContent === ${JSON.stringify(ref)}`, "номер ведёт к источнику");
+    await ask("Какие ещё товары выпускает этот завод?");
+    await idle();
+    assert(await js(`${lastBot}.dataset.mode === "FACTORY_PRODUCTS" && ${lastBot}.querySelectorAll(".ai-suit-card").length >= 8`), "товары завода карточками");
+    assert(await js(`![...${lastBot}.querySelectorAll(".ai-suit-card b")].some((b) => b.textContent === "ШОВ")`), "ШОВ уже обсуждали — его нет");
+    await ask("Какие документы есть у ШОВ?");
+    await idle();
+    assert(await js(`${lastBot}.dataset.mode === "FACTORY_DOCUMENTS" && ${lastBot}.querySelectorAll(".ai-doc").length >= 2`), "список документов");
+    assert(await js(`${lastBot}.querySelector(".ai-docs").textContent.includes("2026-09-05")`), "дата письма технолога");
+    const dref = await js(`${lastBot}.querySelector(".ai-doc .ai-ref")?.textContent || ""`);
+    await js(`${lastBot}.querySelector(".ai-doc .ai-ref").click()`);
+    await waitFor(`${lastBot}.querySelector(".ai-source.on .ai-ref")?.textContent === ${JSON.stringify(dref)}`, "номер документа ведёт к источнику");
+    assert(await js(`[...document.querySelectorAll(".ai-doc, .ai-source")].every((x) => x.scrollWidth <= x.clientWidth + 1)`), "документ шире строки");
+    assert(await noHorizontalScroll(), "документы шире экрана");
+    await js(`${lastBot}.scrollIntoView({ block: "start" }), true`); await sleep(300);
+    await shot(`${label}-13-documents`);
+    await ask("Кто изготовитель ТЕПЛОКОМ?");
+    await idle();
+    await waitFor(`[...${lastBot}.querySelectorAll(".ai-suit-card")].some((c) => c.dataset.status === "CONFLICTED" && c.textContent.includes("противоречие"))`, "ТЕПЛОКОМ — противоречие");
+    assert(await noHorizontalScroll(), "противоречие шире экрана");
+  });
+
+  await check(`${label}: беседа переживает перезагрузку, «Новая беседа» — чистый лист`, async () => {
+    const n = await js(`document.querySelectorAll(".ai-msg").length`);
+    await go("/admin/assistant");
+    await waitFor(`document.querySelectorAll(".ai-msg").length === ${n}`, "беседа восстановлена");
+    await clickText("button", "Новая беседа");
+    await waitFor(`!document.querySelector(".ai-msg") && !!document.querySelector(".ai-examples")`, "пустая беседа с примерами");
+  });
+
+  await check(`${label}: 3.5 — конкуренты: список, поиск, карточка компании, товар, цены, аналоги, сравнение`, () => ownAddress(async () => {
+    await go("/admin/ai/competitors");
+    await waitFor(`document.querySelectorAll(".ci-list-row").length >= 3`, "список конкурентов");
+    assert(await js(`[...document.querySelectorAll(".ci-list-row")].some((r) => r.textContent.includes("ТестСмесь") && r.textContent.includes("Марка-Т") && r.textContent.includes("Тестовый край"))`), "строка ТестСмеси: марки, регион");
+    if (label === "mobile-375") assert(await js(`getComputedStyle(document.querySelector(".ci-list-head")).display === "none"`), "на телефоне — карточки без шапки таблицы");
+    assert(await noHorizontalScroll(), "список шире экрана");
+    await js(`document.querySelector("h1").scrollIntoView({ block: "start" }), true`); await sleep(250);
+    await shot(`${label}-14-competitors`);
+    await typeInto(".ci-filters input", "Т-Шов");
+    await waitFor(`document.querySelectorAll(".ci-list-row").length === 1 && document.querySelector(".ci-list-row").textContent.includes("ТестСмесь")`, "поиск по имени товара");
+    await js(`document.querySelector(".ci-list-row").click(), true`);
+    await waitFor(`document.querySelector("h1")?.textContent === "ТестСмесь"`, "карточка компании");
+    assert(await js(`document.querySelectorAll(".ci-list-row").length === 4 && !!document.querySelector(".ci-sources li")`), "товары и источники компании");
+    assert(await noHorizontalScroll(), "карточка компании шире экрана");
+    await js(`document.querySelector("h1").scrollIntoView({ block: "start" }), true`); await sleep(250);
+    await shot(`${label}-15-company`);
+    await go(`/admin/ai/competitor-products/${cx.products.tShov.id}`);
+    await waitFor(`document.querySelector("h1")?.textContent.includes("Т-Шов")`, "карточка товара");
+    await waitFor(`!!document.querySelector("[data-block=properties] .ci-conflict")`, "расхождение характеристик показано");
+    assert(await js(`document.querySelector("[data-block=prices]").textContent.includes("450,00") && document.querySelector("[data-block=prices]").textContent.includes("за кг")`), "цены с основами");
+    assert(await js(`document.querySelector("[data-block=prices]").textContent.includes("390,00")`), "администратору видна конфиденциальная цена");
+    assert(await js(`[...document.querySelectorAll("[data-block=analogs] .ci-analog")].some((a) => a.dataset.status === "CONFIRMED" && a.textContent.includes("ШОВ"))`), "подтверждённый аналог ШОВ");
+    assert(await js(`[...document.querySelectorAll("[data-block=analogs] .ci-analog")].some((a) => a.dataset.status === "INFERRED" && a.textContent.includes("Предположение"))`), "предположение подписано");
+    await waitFor(`!!document.querySelector("[data-block=compare] .ai-compare table")`, "таблица сравнения");
+    assert(await js(`document.querySelector("[data-block=compare]").textContent.includes("нет данных")`), "пропуски — «нет данных»");
+    assert(await js(`!/unknown_legacy_origin|technical_document|explicit_source_statement|user_decision/.test(document.querySelector(".ci-page").textContent)`), "служебные коды на экране");
+    await js(`document.querySelector("h1").scrollIntoView({ block: "start" }), true`); await sleep(250);
+    await shot(`${label}-16a-product`);
+    await js(`document.querySelector("[data-block=prices]").scrollIntoView({ block: "start" }), true`); await sleep(300);
+    await shot(`${label}-16b-prices`);
+    assert(await js(`!/лучш|хуже|выгодн|победит/i.test(document.querySelector(".ci-page").textContent)`), "оценочных слов нет");
+    assert(await noHorizontalScroll(), "карточка товара шире экрана");
+    await js(`document.querySelector("[data-block=compare]").scrollIntoView({ block: "start" }), true`); await sleep(300);
+    await shot(`${label}-16-compare`);
+    await go(`/admin/ai/competitor-products/${cx.products.pFinish.id}`);
+    await waitFor(`!!document.querySelector("[data-empty=properties]") && !!document.querySelector("[data-empty=prices]")`, "«нет характеристик», «нет цен»");
+    await go(`/admin/ai/products/${aiIds.shov}`);
+    await waitFor(`document.querySelector("[data-block=our-analogs]")?.textContent.includes("Т-Шов")`, "аналоги на карточке нашего товара");
+  }));
+
+  await check(`${label}: 3.5 — формы: без источника и даты цена не сохраняется; новая компания появляется без перезагрузки`, () => ownAddress(async () => {
+    await go(`/admin/ai/competitor-products/${cx.products.tShov.id}`);
+    await waitFor(`!!document.querySelector("h1")`, "карточка товара");
+    await clickText("[data-block=prices] button", "Добавить цену");
+    await waitFor(`!!document.querySelector(".modal .ci-form")`, "форма цены");
+    assert(await js(`document.querySelector(".modal button[type=submit]").disabled`), "без суммы, основы, даты и источника — нельзя");
+    await typeInto(".modal input[inputmode=decimal]", "455,50");
+    await typeInto(".modal input[placeholder='за мешок 25 кг']", "за мешок 25 кг");
+    await sleep(100);
+    assert(await js(`document.querySelector(".modal button[type=submit]").disabled && /дата наблюдения/.test(document.querySelector(".modal .ci-form").textContent) && /источник/.test(document.querySelector(".modal .ci-form").textContent)`), "без даты и источника — нельзя, и это сказано");
+    assert(await js(`[...document.querySelectorAll(".modal select")].some((s) => [...s.options].some((o) => o.textContent === "конфиденциальные"))`), "уровень доступа в форме");
+    assert(await js(`document.querySelector(".modal").getBoundingClientRect().right <= innerWidth + 1`), "форма шире экрана");
+    await shot(`${label}-17-price-form`);
+    await js(`document.querySelector(".modal .btn:not(.btn-primary)").click(), true`);
+    await go("/admin/ai/competitors");
+    await waitFor(`document.querySelectorAll(".ci-list-row").length >= 3`, "список");
+    await clickText("button", "Добавить компанию");
+    await waitFor(`!!document.querySelector(".modal input[name=name]")`, "форма компании");
+    const name = `E2E-Компания-${label.length}`;
+    await typeInto(".modal input[name=name]", name);
+    await waitFor(`!document.querySelector(".modal button[type=submit]").disabled`, "можно сохранить");
+    await js(`document.querySelector(".modal button[type=submit]").click(), true`);
+    await waitFor(`!document.querySelector(".modal") && [...document.querySelectorAll(".ci-list-row")].some((r) => r.textContent.includes(${JSON.stringify(name)}))`, "новая компания в списке без перезагрузки");
+    assert(await noHorizontalScroll(), "страница шире экрана после сохранения");
+  }));
+
+}
+
+await viewport(1280, 900, false);
+
+await check("менеджер: вход через форму, уровень «витрина и внутренние», конфиденциального нет", async () => {
+  await cdp("Network.clearBrowserCookies");
+  await go("/login?next=/admin/assistant");
+  await waitFor(`!!document.querySelector("input[type=email]")`, "форма входа");
+  await typeInto("input[type=email]", "e2e-manager@test.habez.local");
+  await typeInto("input[type=password]", managerPassword);
+  await js(`document.querySelector("input[type=password]").form.requestSubmit(), true`);
+  await waitFor(`location.pathname === "/admin/assistant"`, "после входа — Habez AI");
+  await waitFor(`document.querySelector(".ai-head .hint")?.textContent.includes("витрина и внутренние наблюдения")`, "уровень менеджера");
+  fake.mode = "cite";
+  await ask("Какая прочность на изгиб у ШОВ?");
+  await idle();
+  const text = await js(`document.querySelector(".ai-log").textContent`);
+  assert(!text.includes("конфиденциально") && !text.includes(LEVEL_VALUES.confidential), "конфиденциальное на экране менеджера");
+  const input = fake.last().body.messages.at(-1).content;
+  assert(!input.includes(LEVEL_VALUES.confidential), "конфиденциальное ушло модели");
+});
+
+await check("менеджер: конкуренты только для чтения, конфиденциальное — только числом", () => ownAddress(async () => {
+  await go("/admin/ai/competitors");
+  await waitFor(`document.querySelectorAll(".ci-list-row").length >= 2`, "список для менеджера");
+  assert(!(await js(`[...document.querySelectorAll("button")].some((b) => b.textContent.includes("Добавить компанию"))`)), "у менеджера нет кнопки записи");
+  assert(!(await js(`document.body.textContent.includes("Секрет-Групп")`)), "конфиденциальная компания видна менеджеру");
+  await go(`/admin/ai/competitor-products/${cx.products.tShov.id}`);
+  await waitFor(`!!document.querySelector("[data-block=prices]")`, "цены для менеджера");
+  assert(await js(`!document.querySelector("[data-block=prices]").textContent.includes("390,00") && /доступны другой роли/.test(document.querySelector("[data-block=prices]").textContent)`), "дилерская цена скрыта, есть пометка");
+  assert(!(await js(`[...document.querySelectorAll("button")].some((b) => /Добавить|Снять|Изменить/.test(b.textContent))`)), "у менеджера нет форм");
+  // Дальше сценарий продолжается с Habez AI — возвращаемся туда же.
+  await go("/admin/assistant");
+  await waitFor(`!!document.querySelector(".ai-head")`, "Habez AI менеджера");
+}));
+
+await check("выход: беседы стёрты из вкладки, панель недоступна", async () => {
+  assert(await js(`Object.keys(sessionStorage).some((k) => k.startsWith("habezpro.ai.chat"))`), "беседа сохранялась до выхода");
+  await go("/account");
+  await waitFor(`[...document.querySelectorAll("button")].some((b) => b.textContent === "Выйти")`, "кнопка «Выйти»");
+  await clickText("button", "Выйти");
+  await waitFor(`location.pathname === "/"`, "ушли на главную");
+  assert(await js(`!Object.keys(sessionStorage).some((k) => k.startsWith("habezpro.ai.chat"))`), "беседа осталась после выхода");
+  await go("/admin/assistant");
+  await waitFor(`location.pathname === "/login"`, "панель без входа ведёт на вход");
+});
+
+await check("истечение сессии: понятное «Сессия истекла», не ответ гостя", async () => {
+  const prev = config.auth.accessTtl;
+  config.auth.accessTtl = 2;
+  await cdp("Network.clearBrowserCookies");
+  const token = session(managerId);
+  await cdp("Network.setCookie", { name: "hgz_rt", value: token, url: `${base}/api/auth/`, path: "/api/auth", httpOnly: true });
+  await go("/admin/assistant");
+  await waitFor(`!!document.querySelector(".ai-chat")`, "страница");
+  config.auth.accessTtl = prev;
+  // Срок refresh-сессии истёк (записан, как пишет сервер, — ISO-строкой).
+  run("UPDATE sessions SET expires_at=? WHERE user_id=?", new Date(Date.now() - 1000).toISOString(), managerId);
+  // Токен действует до конца секунды exp включительно: ждём с запасом.
+  await sleep(3600);
+  const n = fake.requests.length;
+  await ask("Расскажи про ШОВ");
+  await waitFor(`${lastBot}?.querySelector(".ai-error")?.textContent.includes("Сессия истекла")`, "сообщение об истёкшей сессии");
+  assert(fake.requests.length === n, "модель не вызывалась");
+});
+
+await check("витрина /ai: при AI_AGENT_PUBLIC=1 — чат и вкладка на телефоне; при 0 — «недоступен»", async () => {
+  await cdp("Network.clearBrowserCookies");
+  // Настройки витрины кешируются браузером на минуту — для проверки флага кеш выключаем.
+  await cdp("Network.setCacheDisabled", { cacheDisabled: true });
+  await viewport(375, 812, true);
+  config.ai.agent.public = true;
+  await go("/ai");
+  await waitFor(`!!document.querySelector(".ai-chat.in-store")`, "чат на витрине");
+  await waitFor(`document.querySelector(".ai-head .hint")?.textContent.includes("данные витрины")`, "уровень гостя");
+  assert(await js(`[...document.querySelectorAll("a[href='/ai']")].length > 0`), "вкладка Habez AI");
+  fake.mode = "cite";
+  await ask("Какая прочность ШОВ?");
+  await idle();
+  assert(await js(`!document.querySelector(".ai-log").textContent.includes("вопрос сверки")`), "гостю — без вопросов сверки");
+  assert(await noHorizontalScroll(), "горизонтальная прокрутка на телефоне");
+  const composeVisible = await js(`(() => { const r = document.querySelector(".ai-compose").getBoundingClientRect(); const tab = document.querySelector(".tabbar")?.getBoundingClientRect(); return r.bottom <= innerHeight && (!tab || r.bottom <= tab.top + 1); })()`);
+  assert(composeVisible, "поле ввода не перекрыто нижней панелью");
+  await shot("mobile-375-07-store-ai");
+  config.ai.agent.public = false;
+  await go("/ai");
+  await waitFor(`document.body.textContent.includes("Habez AI пока недоступен")`, "заглушка без флага");
+  assert(await js(`[...document.querySelectorAll("a[href='/ai']")].length === 0`), "вкладка без флага");
+  config.ai.agent.public = true;
+});
+
+await check("ошибок JavaScript на страницах нет", async () => {
+  assert(!consoleErrors.length, consoleErrors.join(" | "));
+});
+
+// ── Итог ──────────────────────────────────────────────────────────────────
+const failed = results.filter((r) => !r.ok);
+console.log(`\nИтог: ${results.length - failed.length} из ${results.length} · снимки: ${shots}`);
+ws.close();
+chrome.kill();
+await app.close();
+await fake.close();
+if (!process.env.E2E_SHOTS && !failed.length) rmSync(work, { recursive: true, force: true });
+process.exit(failed.length ? 1 : 0);

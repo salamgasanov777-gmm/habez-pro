@@ -1,0 +1,1132 @@
+{
+  "about": "Habez AI Phase 3.4 — Factory Intelligence: заводы, ассортимент, заводские документы. Формат — как у ai-eval-cases-3-2.json; добавлены ожидания связей завод ↔ товар (product_factory, relations, needs_review), документов (doc_types, only_doc_types, doc_titles, doc_dates, doc_products_min, min_documents), товаров завода (factory_items, factory_group, min_factory_items), завода (factory_id) и паспорта (profile_factory). Тест — ai-agent-3-4.test.js (тестовая база, заглушка); выборка «live» — npm run ai:eval -- --set 3.4 на рабочей базе: только случаи, ожидания которых верны и там.",
+  "live": [
+    1,
+    2,
+    8,
+    15,
+    20,
+    22,
+    23,
+    25,
+    26,
+    27,
+    32,
+    39
+  ],
+  "cases": [
+    {
+      "id": 1,
+      "group": "lookup",
+      "turns": [
+        "Что известно о заводе?"
+      ],
+      "expected_intent": "factory_profile",
+      "expected_entities": {},
+      "expected_tools": [
+        "get_factory"
+      ],
+      "expected_evidence": {
+        "factory_id": "home",
+        "values": [
+          "ТОВАРНЫЕ ГРУППЫ",
+          "НЕ УСТАНОВЛЕНО",
+          "адрес организации"
+        ]
+      },
+      "expected_behavior": {
+        "mode": "FACTORY_PROFILE",
+        "model": true,
+        "text": "Профиль из реквизитов, каталога и документов; что не установлено — названо."
+      },
+      "forbidden_behavior": {}
+    },
+    {
+      "id": 2,
+      "group": "lookup",
+      "turns": [
+        "Где находится завод?"
+      ],
+      "expected_intent": "factory_lookup",
+      "expected_entities": {},
+      "expected_tools": [
+        "get_factory"
+      ],
+      "expected_evidence": {
+        "factory_id": "home",
+        "values": [
+          "что это адрес производственной площадки, в данных не сказано"
+        ]
+      },
+      "expected_behavior": {
+        "mode": "FACTORY_LOOKUP",
+        "model": true,
+        "text": "Адрес из реквизитов — как адрес организации, не площадки."
+      },
+      "forbidden_behavior": {}
+    },
+    {
+      "id": 3,
+      "group": "lookup",
+      "turns": [
+        "Какая мощность завода?"
+      ],
+      "expected_intent": "factory_lookup",
+      "expected_entities": {},
+      "expected_tools": [],
+      "expected_evidence": {},
+      "expected_behavior": {
+        "mode": "FACTORY_LOOKUP",
+        "model": false,
+        "text": "Мощности в данных нет — ответ без модели, ничего не выдумано.",
+        "answer_includes": [
+          "нет сведений"
+        ]
+      },
+      "forbidden_behavior": {}
+    },
+    {
+      "id": 4,
+      "group": "lookup",
+      "turns": [
+        "Есть ли сведения о производителе?"
+      ],
+      "expected_intent": "factory_profile",
+      "expected_entities": {},
+      "expected_tools": [],
+      "expected_evidence": {
+        "factory_id": "home"
+      },
+      "expected_behavior": {
+        "mode": "FACTORY_PROFILE",
+        "model": true,
+        "text": "Что известно о производителе: реквизиты; прямых записей «Изготовитель» у большинства товаров нет."
+      },
+      "forbidden_behavior": {}
+    },
+    {
+      "id": 5,
+      "group": "lookup",
+      "turns": [
+        "Что известно о заводе Habez?"
+      ],
+      "expected_intent": "factory_profile",
+      "expected_entities": {},
+      "expected_tools": [],
+      "expected_evidence": {
+        "factory_id": "home"
+      },
+      "expected_behavior": {
+        "mode": "FACTORY_PROFILE",
+        "model": true,
+        "text": "Habez — марка и имя в реквизитах; профиль того же завода."
+      },
+      "forbidden_behavior": {}
+    },
+    {
+      "id": 6,
+      "group": "lookup",
+      "turns": [
+        "Сколько работников на заводе?"
+      ],
+      "expected_intent": "factory_lookup",
+      "expected_entities": {},
+      "expected_tools": [],
+      "expected_evidence": {},
+      "expected_behavior": {
+        "mode": "FACTORY_LOOKUP",
+        "model": false,
+        "text": "Численности в данных нет.",
+        "answer_includes": [
+          "нет сведений",
+          "численность работников"
+        ]
+      },
+      "forbidden_behavior": {}
+    },
+    {
+      "id": 7,
+      "group": "lookup",
+      "turns": [
+        "Что производит завод Кнауф?"
+      ],
+      "expected_intent": "factory_products",
+      "expected_entities": {},
+      "expected_tools": [],
+      "expected_evidence": {},
+      "expected_behavior": {
+        "mode": "NOT_FOUND",
+        "model": false,
+        "text": "Завода «Кнауф» в данных нет — не выдумывать.",
+        "answer_includes": [
+          "Кнауф"
+        ]
+      },
+      "forbidden_behavior": {}
+    },
+    {
+      "id": 8,
+      "group": "product_factory",
+      "turns": [
+        "Где производится ШОВ?"
+      ],
+      "expected_intent": "product_factory",
+      "expected_entities": {
+        "products": [
+          "shov"
+        ]
+      },
+      "expected_tools": [
+        "get_factory_documents"
+      ],
+      "expected_evidence": {
+        "product_factory": {
+          "shov": "INFERRED"
+        }
+      },
+      "expected_behavior": {
+        "mode": "PRODUCT_FACTORY",
+        "model": true,
+        "text": "Косвенно: письмо технолога и паспорт качества завода описывают ШОВ; прямого «Изготовитель» нет."
+      },
+      "forbidden_behavior": {
+        "product_factory_not": {
+          "shov": "CONFIRMED"
+        }
+      }
+    },
+    {
+      "id": 9,
+      "group": "product_factory",
+      "turns": [
+        "Кто производитель МЕЛИССЫ?"
+      ],
+      "expected_intent": "product_factory",
+      "expected_entities": {
+        "products": [
+          "melissa"
+        ]
+      },
+      "expected_tools": [],
+      "expected_evidence": {
+        "product_factory": {
+          "melissa": "CONFIRMED"
+        },
+        "relations": {
+          "melissa": {
+            "Хабезский": "CONFIRMED"
+          }
+        }
+      },
+      "expected_behavior": {
+        "mode": "PRODUCT_FACTORY",
+        "model": true,
+        "text": "Этикетка прямо называет изготовителя — подтверждено."
+      },
+      "forbidden_behavior": {}
+    },
+    {
+      "id": 10,
+      "group": "product_factory",
+      "turns": [
+        "Кто изготовитель ТЕПЛОКОМ?"
+      ],
+      "expected_intent": "product_factory",
+      "expected_entities": {
+        "products": [
+          "teplokom"
+        ]
+      },
+      "expected_tools": [],
+      "expected_evidence": {
+        "product_factory": {
+          "teplokom": "CONFLICTED"
+        },
+        "relations": {
+          "teplokom": {
+            "Хабезский": "CONFLICTED",
+            "Черкесский": "CONFLICTED"
+          }
+        }
+      },
+      "expected_behavior": {
+        "mode": "PRODUCT_FACTORY",
+        "model": true,
+        "text": "Этикетка и ТУ называют разных изготовителей — противоречие, победителя нет."
+      },
+      "forbidden_behavior": {}
+    },
+    {
+      "id": 11,
+      "group": "product_factory",
+      "turns": [
+        "Где производится НАЛЬ?"
+      ],
+      "expected_intent": "product_factory",
+      "expected_entities": {
+        "products": [
+          "nal"
+        ]
+      },
+      "expected_tools": [],
+      "expected_evidence": {
+        "relations": {
+          "nal": {
+            "Хабезский": "CONFIRMED",
+            "Черкесский": "CONFIRMED"
+          }
+        }
+      },
+      "expected_behavior": {
+        "mode": "PRODUCT_FACTORY",
+        "model": true,
+        "text": "Две площадки названы прямо — обе подтверждены, это не противоречие."
+      },
+      "forbidden_behavior": {
+        "product_factory_not": {
+          "nal": "CONFLICTED"
+        }
+      }
+    },
+    {
+      "id": 12,
+      "group": "product_factory",
+      "turns": [
+        "На каком заводе производится стяжка цементная?"
+      ],
+      "expected_intent": "product_factory",
+      "expected_entities": {
+        "products": [
+          "styazhka"
+        ]
+      },
+      "expected_tools": [],
+      "expected_evidence": {
+        "product_factory": {
+          "styazhka": "UNKNOWN"
+        }
+      },
+      "expected_behavior": {
+        "mode": "PRODUCT_FACTORY",
+        "model": false,
+        "text": "Данных нет — ответ без модели: изготовитель не указан, каталог — не производство.",
+        "answer_includes": [
+          "не указан"
+        ]
+      },
+      "forbidden_behavior": {}
+    },
+    {
+      "id": 13,
+      "group": "product_factory",
+      "turns": [
+        "Где производится КОРОЕД?"
+      ],
+      "expected_intent": "product_factory",
+      "expected_entities": {
+        "products": [
+          "koroed"
+        ]
+      },
+      "expected_tools": [],
+      "expected_evidence": {
+        "product_factory": {
+          "koroed": "UNKNOWN"
+        }
+      },
+      "expected_behavior": {
+        "mode": "PRODUCT_FACTORY",
+        "model": false,
+        "text": "UNKNOWN: карточка без документов завода; ответ без модели.",
+        "answer_includes": [
+          "не указан"
+        ]
+      },
+      "forbidden_behavior": {
+        "product_factory_not": {
+          "koroed": "INFERRED"
+        }
+      }
+    },
+    {
+      "id": 14,
+      "group": "factory_products",
+      "turns": [
+        "Что производит Habez?"
+      ],
+      "expected_intent": "factory_products",
+      "expected_entities": {},
+      "expected_tools": [
+        "get_factory_products"
+      ],
+      "expected_evidence": {
+        "min_factory_items": 40,
+        "factory_items": {
+          "shov": "INFERRED",
+          "koroed": "UNKNOWN",
+          "melissa": "CONFIRMED",
+          "teplokom": "CONFLICTED"
+        }
+      },
+      "expected_behavior": {
+        "mode": "FACTORY_PRODUCTS",
+        "model": true,
+        "text": "Весь каталог со статусом производства у каждого товара; «нет данных» — не «не производит»."
+      },
+      "forbidden_behavior": {}
+    },
+    {
+      "id": 15,
+      "group": "factory_products",
+      "turns": [
+        "Какие краски выпускает завод?"
+      ],
+      "expected_intent": "factory_products",
+      "expected_entities": {},
+      "expected_tools": [],
+      "expected_evidence": {
+        "factory_group": "краски",
+        "factory_items": {
+          "paint-interior": "INFERRED",
+          "paint-facade": "INFERRED"
+        }
+      },
+      "expected_behavior": {
+        "mode": "FACTORY_PRODUCTS",
+        "model": true,
+        "text": "Группа «краски»: ИНТЕРЬЕР и ФАСАД, косвенно (паспорт качества)."
+      },
+      "forbidden_behavior": {
+        "factory_items_excludes": [
+          "shov"
+        ]
+      }
+    },
+    {
+      "id": 16,
+      "group": "factory_products",
+      "turns": [
+        "Какие сухие смеси выпускает завод?"
+      ],
+      "expected_intent": "factory_products",
+      "expected_entities": {},
+      "expected_tools": [],
+      "expected_evidence": {
+        "factory_group": "сухие смеси",
+        "factory_items": {
+          "shov": "INFERRED"
+        }
+      },
+      "expected_behavior": {
+        "mode": "FACTORY_PRODUCTS",
+        "model": true,
+        "text": "Сухие смеси по разделам каталога; краски и грунтовки — нет."
+      },
+      "forbidden_behavior": {
+        "factory_items_excludes": [
+          "paint-interior",
+          "ekonom",
+          "gkl"
+        ]
+      }
+    },
+    {
+      "id": 17,
+      "group": "factory_products",
+      "turns": [
+        "Какие товарные группы относятся к заводу?"
+      ],
+      "expected_intent": "factory_products",
+      "expected_entities": {},
+      "expected_tools": [],
+      "expected_evidence": {
+        "min_factory_items": 40,
+        "values": [
+          "ТОВАРЫ ЗАВОДА"
+        ]
+      },
+      "expected_behavior": {
+        "mode": "FACTORY_PRODUCTS",
+        "model": true,
+        "text": "Разделы каталога завода с числом товаров."
+      },
+      "forbidden_behavior": {}
+    },
+    {
+      "id": 18,
+      "group": "factory_products",
+      "turns": [
+        "Какие виды гипсокартона есть в ассортименте?"
+      ],
+      "expected_intent": "factory_products",
+      "expected_entities": {},
+      "expected_tools": [],
+      "expected_evidence": {
+        "factory_group": "гипсокартон",
+        "factory_items": {
+          "gkl": "UNKNOWN"
+        }
+      },
+      "expected_behavior": {
+        "mode": "FACTORY_PRODUCTS",
+        "model": true,
+        "text": "Группа «гипсокартон» — без уточнения «какой лист»."
+      },
+      "forbidden_behavior": {}
+    },
+    {
+      "id": 19,
+      "group": "factory_products",
+      "turns": [
+        "Какие товары производит Черкесский завод смесей?"
+      ],
+      "expected_intent": "factory_products",
+      "expected_entities": {},
+      "expected_tools": [],
+      "expected_evidence": {
+        "factory_id": "m-",
+        "factory_items": {
+          "teplokom": "CONFLICTED",
+          "nal": "CONFIRMED"
+        }
+      },
+      "expected_behavior": {
+        "mode": "FACTORY_PRODUCTS",
+        "model": true,
+        "text": "Завод, названный в данных: только товары, где он назван (ТЕПЛОКОМ — противоречие, НАЛЬ — площадка)."
+      },
+      "forbidden_behavior": {
+        "factory_items_excludes": [
+          "shov",
+          "melissa"
+        ]
+      }
+    },
+    {
+      "id": 20,
+      "group": "documents",
+      "turns": [
+        "Какие документы есть у ШОВ?"
+      ],
+      "expected_intent": "factory_documents",
+      "expected_entities": {
+        "products": [
+          "shov"
+        ]
+      },
+      "expected_tools": [
+        "get_factory_documents"
+      ],
+      "expected_evidence": {
+        "doc_types": [
+          "factory_technologist"
+        ],
+        "min_documents": 2
+      },
+      "expected_behavior": {
+        "mode": "FACTORY_DOCUMENTS",
+        "model": true,
+        "text": "Письмо технолога от 05.09.2026 и другие документы; дата документа отдельно от даты записи."
+      },
+      "forbidden_behavior": {}
+    },
+    {
+      "id": 21,
+      "group": "documents",
+      "turns": [
+        "Есть ли паспорт на ШОВ?"
+      ],
+      "expected_intent": "factory_documents",
+      "expected_entities": {
+        "products": [
+          "shov"
+        ]
+      },
+      "expected_tools": [],
+      "expected_evidence": {
+        "doc_types": [
+          "quality_passport"
+        ],
+        "only_doc_types": [
+          "quality_passport"
+        ]
+      },
+      "expected_behavior": {
+        "mode": "FACTORY_DOCUMENTS",
+        "model": true,
+        "text": "Только паспорта качества."
+      },
+      "forbidden_behavior": {}
+    },
+    {
+      "id": 22,
+      "group": "documents",
+      "turns": [
+        "Какие документы относятся к КОРОЕДУ?"
+      ],
+      "expected_intent": "factory_documents",
+      "expected_entities": {
+        "products": [
+          "koroed"
+        ]
+      },
+      "expected_tools": [],
+      "expected_evidence": {
+        "doc_types": [
+          "product_card"
+        ]
+      },
+      "expected_behavior": {
+        "mode": "FACTORY_DOCUMENTS",
+        "model": true,
+        "text": "Только карточка Habez Pro; заводских документов нет; конфиденциальный замер сотруднику не виден."
+      },
+      "forbidden_behavior": {
+        "doc_types": [
+          "measurement",
+          "quality_passport",
+          "factory_technologist"
+        ],
+        "context_excludes": [
+          "lab-koroed-9",
+          "9 МПа"
+        ]
+      }
+    },
+    {
+      "id": 23,
+      "group": "documents",
+      "turns": [
+        "Что указано в паспорте качества краски ИНТЕРЬЕР?"
+      ],
+      "expected_intent": "factory_documents",
+      "expected_entities": {
+        "products": [
+          "paint-interior"
+        ]
+      },
+      "expected_tools": [],
+      "expected_evidence": {
+        "doc_types": [
+          "quality_passport"
+        ],
+        "only_doc_types": [
+          "quality_passport"
+        ],
+        "values": [
+          "0,2 МПа",
+          "в документе указано"
+        ]
+      },
+      "expected_behavior": {
+        "mode": "FACTORY_DOCUMENTS",
+        "model": true,
+        "text": "Паспорт качества: в документе указано 0,2 МПа; название документа не записано."
+      },
+      "forbidden_behavior": {}
+    },
+    {
+      "id": 24,
+      "group": "documents",
+      "turns": [
+        "Какие документы есть на гипсокартон?"
+      ],
+      "expected_intent": "factory_documents",
+      "expected_entities": {},
+      "expected_tools": [],
+      "expected_evidence": {
+        "doc_types": [
+          "price_list",
+          "factory_site"
+        ]
+      },
+      "expected_behavior": {
+        "mode": "FACTORY_DOCUMENTS",
+        "model": true,
+        "text": "«Гипсокартон» — группа товаров: прайс и сайт завода (публикация, не документ)."
+      },
+      "forbidden_behavior": {}
+    },
+    {
+      "id": 25,
+      "group": "documents",
+      "turns": [
+        "Какие документы есть у ШОВ и АНТИПЛЕСЕНЬ?"
+      ],
+      "expected_intent": "factory_documents",
+      "expected_entities": {
+        "products": [
+          "shov",
+          "antipleseni"
+        ]
+      },
+      "expected_tools": [],
+      "expected_evidence": {
+        "doc_dates": [
+          "2026-09-05",
+          "2026-09-08"
+        ]
+      },
+      "expected_behavior": {
+        "mode": "FACTORY_DOCUMENTS",
+        "model": true,
+        "text": "Несколько товаров: письма технолога от 05.09 и 08.09."
+      },
+      "forbidden_behavior": {}
+    },
+    {
+      "id": 26,
+      "group": "provenance",
+      "turns": [
+        "Какой документ подтверждает прочность сцепления ШОВ?"
+      ],
+      "expected_intent": "factory_documents",
+      "expected_entities": {
+        "products": [
+          "shov"
+        ]
+      },
+      "expected_tools": [],
+      "expected_evidence": {
+        "doc_titles": [
+          "Письмо главного технолога завода от 05.09.2026"
+        ],
+        "doc_dates": [
+          "2026-09-05"
+        ],
+        "only_doc_types": [
+          "factory_technologist"
+        ]
+      },
+      "expected_behavior": {
+        "mode": "FACTORY_DOCUMENTS",
+        "model": true,
+        "text": "Документ с этой характеристикой — письмо технолога от 05.09.2026, наблюдение с условием 7 суток."
+      },
+      "forbidden_behavior": {}
+    },
+    {
+      "id": 27,
+      "group": "provenance",
+      "turns": [
+        "Какие источники используются?"
+      ],
+      "expected_intent": "factory_documents",
+      "expected_entities": {},
+      "expected_tools": [],
+      "expected_evidence": {
+        "values": [
+          "ВИДЫ ИСТОЧНИКОВ"
+        ],
+        "min_documents": 5
+      },
+      "expected_behavior": {
+        "mode": "FACTORY_DOCUMENTS",
+        "model": true,
+        "text": "Обзор видов источников: документы, карточки, «первоисточник не установлен» — не документ."
+      },
+      "forbidden_behavior": {}
+    },
+    {
+      "id": 28,
+      "group": "provenance",
+      "turns": [
+        "Где производится ШОВ?",
+        "Что из этого прямое доказательство, а что вывод?"
+      ],
+      "expected_intent": "product_factory",
+      "expected_entities": {
+        "products": [
+          "shov"
+        ]
+      },
+      "expected_tools": [],
+      "expected_evidence": {
+        "product_factory": {
+          "shov": "INFERRED"
+        },
+        "values": [
+          "УРОВНИ СВЕДЕНИЙ"
+        ]
+      },
+      "expected_behavior": {
+        "mode": "PRODUCT_FACTORY",
+        "model": true,
+        "text": "Уровни сведений: каталог — факт завода, письмо — факт документа, связь «производит» — вывод."
+      },
+      "forbidden_behavior": {}
+    },
+    {
+      "id": 29,
+      "group": "provenance",
+      "turns": [
+        "Какие документы есть у краски ФАСАД?"
+      ],
+      "expected_intent": "factory_documents",
+      "expected_entities": {
+        "products": [
+          "paint-facade"
+        ]
+      },
+      "expected_tools": [],
+      "expected_evidence": {
+        "doc_types": [
+          "quality_passport"
+        ],
+        "doc_products_min": 2,
+        "doc_titles": [
+          "название документа не записано"
+        ]
+      },
+      "expected_behavior": {
+        "mode": "FACTORY_DOCUMENTS",
+        "model": true,
+        "text": "Один пакет паспортов на несколько товаров — без копий документа; название и дата документа не записаны."
+      },
+      "forbidden_behavior": {}
+    },
+    {
+      "id": 30,
+      "group": "provenance",
+      "turns": [
+        "Какие документы есть у ШОВ?"
+      ],
+      "expected_intent": "factory_documents",
+      "expected_entities": {
+        "products": [
+          "shov"
+        ]
+      },
+      "expected_tools": [],
+      "expected_evidence": {},
+      "expected_behavior": {
+        "mode": "FACTORY_DOCUMENTS",
+        "model": false,
+        "text": "Гость: документов слоя знаний нет, только факт, что внутренние есть; ссылок на документы нет.",
+        "answer_includes": [
+          "доступны сотрудникам"
+        ]
+      },
+      "forbidden_behavior": {
+        "context_excludes": [
+          "technologist-note",
+          "passport-2026-09",
+          "Письмо главного технолога"
+        ]
+      },
+      "scope": "public"
+    },
+    {
+      "id": 31,
+      "group": "provenance",
+      "turns": [
+        "Откуда значение прочности сцепления у ШОВ?"
+      ],
+      "expected_intent": "source",
+      "expected_entities": {
+        "products": [
+          "shov"
+        ]
+      },
+      "expected_tools": [],
+      "expected_evidence": {},
+      "expected_behavior": {
+        "mode": "CONFLICT",
+        "model": true,
+        "text": "Происхождение значения (3.2) — не список документов."
+      },
+      "forbidden_behavior": {}
+    },
+    {
+      "id": 32,
+      "group": "conflicts",
+      "turns": [
+        "Что делать при конфликте двух документов?"
+      ],
+      "expected_intent": "factory_documents",
+      "expected_entities": {},
+      "expected_tools": [],
+      "expected_evidence": {
+        "values": [
+          "ПРАВИЛО ПРИ РАСХОЖДЕНИИ"
+        ]
+      },
+      "expected_behavior": {
+        "mode": "FACTORY_DOCUMENTS",
+        "model": true,
+        "text": "Правило: победителя по дате и виду нет, решение — человек в панели; показаны реальные расхождения."
+      },
+      "forbidden_behavior": {}
+    },
+    {
+      "id": 33,
+      "group": "conflicts",
+      "turns": [
+        "Какие документы есть у Бетоноконтакт?"
+      ],
+      "expected_intent": "factory_documents",
+      "expected_entities": {
+        "products": [
+          "betonokontakt"
+        ]
+      },
+      "expected_tools": [],
+      "expected_evidence": {
+        "doc_dates": [
+          "2026-08-01",
+          "2026-09-15"
+        ],
+        "values": [
+          "с разными датами",
+          "победителя нет"
+        ]
+      },
+      "expected_behavior": {
+        "mode": "FACTORY_DOCUMENTS",
+        "model": true,
+        "text": "Два паспорта с разными датами и разными значениями — оба, без выбора по дате."
+      },
+      "forbidden_behavior": {}
+    },
+    {
+      "id": 34,
+      "group": "conflicts",
+      "turns": [
+        "Где производится КОМПОЗИТ?"
+      ],
+      "expected_intent": "product_factory",
+      "expected_entities": {
+        "products": [
+          "kompozit"
+        ]
+      },
+      "expected_tools": [],
+      "expected_evidence": {
+        "needs_review": [
+          "kompozit"
+        ],
+        "product_factory": {
+          "kompozit": "UNKNOWN"
+        }
+      },
+      "expected_behavior": {
+        "mode": "PRODUCT_FACTORY",
+        "model": true,
+        "text": "Сотрудник: конфиденциальный изготовитель скрыт — только «нужна сверка»."
+      },
+      "forbidden_behavior": {
+        "context_excludes": [
+          "Стороннее производство",
+          "contract-kompozit"
+        ]
+      }
+    },
+    {
+      "id": 35,
+      "group": "conflicts",
+      "turns": [
+        "Где производится КОМПОЗИТ?"
+      ],
+      "expected_intent": "product_factory",
+      "expected_entities": {
+        "products": [
+          "kompozit"
+        ]
+      },
+      "expected_tools": [],
+      "expected_evidence": {
+        "relations": {
+          "kompozit": {
+            "Стороннее производство": "CONFIRMED"
+          }
+        }
+      },
+      "expected_behavior": {
+        "mode": "PRODUCT_FACTORY",
+        "model": true,
+        "text": "Администратор видит конфиденциальную запись — изготовитель назван прямо."
+      },
+      "forbidden_behavior": {},
+      "scope": "admin"
+    },
+    {
+      "id": 36,
+      "group": "conflicts",
+      "turns": [
+        "Кто изготовитель ТЕПЛОКОМ?"
+      ],
+      "expected_intent": "product_factory",
+      "expected_entities": {
+        "products": [
+          "teplokom"
+        ]
+      },
+      "expected_tools": [],
+      "expected_evidence": {
+        "needs_review": [
+          "teplokom"
+        ],
+        "product_factory": {
+          "teplokom": "UNKNOWN"
+        }
+      },
+      "expected_behavior": {
+        "mode": "PRODUCT_FACTORY",
+        "model": true,
+        "text": "Гость: внутренние записи не видны — «нет данных» и «нужна сверка», без названий."
+      },
+      "forbidden_behavior": {
+        "context_excludes": [
+          "Черкесский",
+          "tu-teplokom"
+        ]
+      },
+      "scope": "public"
+    },
+    {
+      "id": 37,
+      "group": "multi_turn",
+      "turns": [
+        "Расскажи про ШОВ",
+        "Где его производят?"
+      ],
+      "expected_intent": "product_factory",
+      "expected_entities": {
+        "products": [
+          "shov"
+        ]
+      },
+      "expected_tools": [],
+      "expected_evidence": {
+        "product_factory": {
+          "shov": "INFERRED"
+        }
+      },
+      "expected_behavior": {
+        "mode": "PRODUCT_FACTORY",
+        "model": true,
+        "text": "«Его» — ШОВ из беседы."
+      },
+      "forbidden_behavior": {}
+    },
+    {
+      "id": 38,
+      "group": "multi_turn",
+      "turns": [
+        "Где производится ШОВ?",
+        "Какие ещё товары выпускает этот завод?"
+      ],
+      "expected_intent": "factory_products",
+      "expected_entities": {},
+      "expected_tools": [],
+      "expected_evidence": {
+        "factory_id": "home",
+        "min_factory_items": 30
+      },
+      "expected_behavior": {
+        "mode": "FACTORY_PRODUCTS",
+        "model": true,
+        "text": "«Этот завод» — из беседы; ШОВ уже обсуждали — без него."
+      },
+      "forbidden_behavior": {
+        "factory_items_excludes": [
+          "shov"
+        ]
+      }
+    },
+    {
+      "id": 39,
+      "group": "multi_turn",
+      "turns": [
+        "Расскажи про ШОВ",
+        "Где его производят?",
+        "Какие ещё товары выпускает этот завод?",
+        "Какие документы есть по этим товарам?"
+      ],
+      "expected_intent": "factory_documents",
+      "expected_entities": {},
+      "expected_tools": [],
+      "expected_evidence": {
+        "min_documents": 4,
+        "doc_types": [
+          "factory_technologist",
+          "quality_passport"
+        ]
+      },
+      "expected_behavior": {
+        "mode": "FACTORY_DOCUMENTS",
+        "model": true,
+        "text": "Документы по товарам завода из беседы."
+      },
+      "forbidden_behavior": {}
+    },
+    {
+      "id": 40,
+      "group": "product_factory",
+      "turns": [
+        "Расскажи про МЕЛИССУ"
+      ],
+      "expected_intent": "product_lookup",
+      "expected_entities": {
+        "products": [
+          "melissa"
+        ]
+      },
+      "expected_tools": [],
+      "expected_evidence": {
+        "profile_factory": "CONFIRMED"
+      },
+      "expected_behavior": {
+        "mode": "PRODUCT_PROFILE",
+        "model": true,
+        "text": "Паспорт товара с разделом «Производитель / завод» — подтверждено этикеткой."
+      },
+      "forbidden_behavior": {}
+    },
+    {
+      "id": 41,
+      "group": "product_factory",
+      "turns": [
+        "Где производится ПЕНОПЛЕКС?"
+      ],
+      "expected_intent": "factory_lookup",
+      "expected_entities": {},
+      "expected_tools": [],
+      "expected_evidence": {},
+      "expected_behavior": {
+        "mode": "NOT_FOUND",
+        "model": false,
+        "text": "Товара нет в каталоге — ничего о нём.",
+        "answer_includes": [
+          "ПЕНОПЛЕКС"
+        ]
+      },
+      "forbidden_behavior": {}
+    },
+    {
+      "id": 42,
+      "group": "documents",
+      "turns": [
+        "Какой документ подтверждает прочность на изгиб КОРОЕДА?"
+      ],
+      "expected_intent": "factory_documents",
+      "expected_entities": {
+        "products": [
+          "koroed"
+        ]
+      },
+      "expected_tools": [],
+      "expected_evidence": {},
+      "expected_behavior": {
+        "mode": "FACTORY_DOCUMENTS",
+        "model": false,
+        "text": "Документа с этой характеристикой нет — сказано прямо, документ не выдуман.",
+        "answer_includes": [
+          "нет"
+        ]
+      },
+      "forbidden_behavior": {}
+    }
+  ],
+  "live_extra": []
+}

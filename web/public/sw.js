@@ -73,14 +73,31 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  // Фотографии не меняются — отдаём из кеша сразу.
+  // Фотографии: сразу из кеша (быстро и работает без сети), а следом тихо
+  // спрашиваем сервер и кладём свежий файл на место старого. Имена снимков
+  // при обновлении каталога не меняются («prime.jpg» остаётся «prime.jpg»),
+  // поэтому без такой перепроверки телефон показывал бы старую упаковку
+  // вечно: он просто не обращался бы к серверу.
   if (/\.(webp|jpg|jpeg|png|svg)$/.test(url.pathname)) {
     event.respondWith(
-      caches.match(request).then((hit) => hit || fetch(request).then((res) => {
-        const copy = res.clone();
-        caches.open(IMAGES).then((c) => c.put(request, copy));
-        return res;
-      }))
+      caches.match(request).then((hit) => {
+        const fresh = fetch(request).then((res) => {
+          // Кладём только настоящую картинку. Сервер на неизвестный адрес
+          // отдаёт страницу приложения с кодом 200 — без проверки типа она
+          // подменила бы фотографию в памяти телефона.
+          const isImage = (res.headers.get("content-type") || "").startsWith("image/");
+          if (res.ok && res.status === 200 && isImage) {
+            const copy = res.clone();
+            caches.open(IMAGES).then((c) => c.put(request, copy));
+          }
+          return res;
+        });
+        // Есть в памяти — показываем его, обновление идёт фоном к следующему
+        // разу. Нет — ждём сеть, как раньше.
+        if (!hit) return fresh;
+        event.waitUntil(fresh.catch(() => {}));
+        return hit;
+      })
     );
     return;
   }

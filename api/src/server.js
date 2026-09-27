@@ -27,6 +27,11 @@ import leadRoutes from "./routes/leads.js";
 import accountRoutes from "./routes/account.js";
 import adminRoutes from "./routes/admin.js";
 import pushRoutes from "./routes/push.js";
+import aiKnowledgeRoutes from "./ai/routes/knowledge.js";
+import aiProductRoutes from "./ai/routes/products.js";
+import aiEvidenceRoutes from "./ai/routes/evidence.js";
+import aiAgentRoutes from "./ai/agent/routes.js";
+import aiCompetitorRoutes from "./ai/routes/competitors.js";
 import { openapi } from "./openapi.js";
 
 // Демо-пароли из README не должны работать на живом сервере. Если база
@@ -126,6 +131,18 @@ export async function build() {
   await app.register(accountRoutes);
   await app.register(adminRoutes);
   await app.register(pushRoutes);
+  // Habez AI: раздел выключен по умолчанию (AI_ENABLED). Пока выключен,
+  // маршрутов /api/ai/* не существует — как у платежей при provider=none.
+  if (config.ai.enabled) {
+    await app.register(aiKnowledgeRoutes);
+    await app.register(aiProductRoutes);
+    if (config.ai.evidence) await app.register(aiEvidenceRoutes);
+    // 3.5 Competitor Intelligence: маршруты есть, только если миграция
+    // 2026-09-ai-competitors применена (таблицы на месте).
+    if (get("SELECT name FROM sqlite_master WHERE type='table' AND name='ai_companies'")) await app.register(aiCompetitorRoutes);
+    // Habez AI Agent (Phase 3.1): только чтение слоя знаний.
+    if (config.ai.agent.enabled) await app.register(aiAgentRoutes);
+  }
 
   // Одним процессом можно отдавать и собранный фронтенд — так проще
   // разворачивать на одном небольшом сервере. Обработчик «не найдено»

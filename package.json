@@ -9,6 +9,7 @@
     "dev:web": "npm --prefix web run dev",
     "build": "npm --prefix web run build",
     "test": "npm --prefix api test",
-    "start": "npm --prefix api start"
+    "start": "npm --prefix api start",
+    "e2e:ai": "npm --prefix web run build && node web/e2e/assistant.e2e.mjs"
   }
 }
