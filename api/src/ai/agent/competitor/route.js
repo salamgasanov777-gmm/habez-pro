@@ -62,3 +62,22 @@ export function competitorIntent(q, { hits = [], ours = [], oursFrom = null, sta
   if (PRODUCTS.test(q) && (companies.length || brands.length)) return { intent: "competitor_products", ...base };
   return { intent: "competitor_lookup", ...base };
 }
+
+// Phase 4.1: домен «конкуренты» в реестре маршрутизатора (router.js →
+// DOMAIN_ROUTES) — раньше заводов: «Что производит ТестСмесь?» — вопрос о
+// конкуренте. Код правки маршрута перенесён из router.js без изменений.
+export const competitorRoute = {
+  id: "competitor",
+  detect: (x) => competitorIntent(x.q, { hits: x.compHits, ours: x.products, oursFrom: x.productsFrom, state: x.state, scope: x.scope, unknown: x.unknown, hasRegistry: x.hasRegistry }),
+  apply(d, ci, x) {
+    d.intent = ci.intent;
+    d.factory = null; d.ambiguous = [];
+    d.competitor = { companies: ci.companies.map((c) => c.id), brands: ci.brands.map((c) => c.id), products: ci.products.map((c) => c.id), from: ci.from,
+      otherBrand: ci.otherBrand, list: !!ci.list, forbidden: !!ci.forbidden, hits: x.compHits.map((h) => ({ type: h.item.type, id: h.item.id, name: h.item.name, via: h.via })) };
+    // Наш товар — из вопроса; для сравнения и аналогов — ещё из беседы.
+    // Для сравнения наш товар нужен всегда; для аналогов — только если не
+    // назван товар конкурента («Какой товар Habez — аналог Т-Шов?»).
+    if (!d.products.length && x.prevProduct && (d.intent === "competitor_comparison" || (d.intent === "analog_lookup" && !ci.products.length))) { d.products = [x.prevProduct]; d.productsFrom = "state"; d.reference = "single"; }
+    if (["competitor_lookup", "competitor_products", "competitor_price"].includes(d.intent) && d.productsFrom !== "question") { d.products = []; d.productsFrom = null; d.reference = null; }
+  },
+};

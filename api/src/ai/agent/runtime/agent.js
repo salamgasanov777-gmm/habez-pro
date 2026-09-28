@@ -1,20 +1,19 @@
-// Habez AI Agent: один ответ на вопрос (Phase 3.2 — агент с инструментами).
+// Habez AI Agent: один ответ на вопрос.
 //
 //   вопрос
-//   → маршрут (retrieval/router.js): намерение, товары, характеристики,
-//     условия, фасовка, отсылки к беседе («у него», «их», «А у Стандарта?»)
-//   → решения без модели: товара нет → NOT_FOUND; неясно, какой товар или
-//     какая фасовка → CLARIFICATION
-//   → план: инструменты чтения по маршруту (get_product, get_product_specs,
-//     compare_products, search_products, search_knowledge)
-//   → выборка (runtime/plan.js): характеристики, условия, фасовка
-//   → режим: FACT | COMPARISON | CONFLICT | NOT_FOUND | CLARIFICATION
-//   → пакет доказательств с номерами [E#] (runtime/bundle.js)
+//   → маршрут (retrieval/router.js): намерение (домены по приоритету —
+//     конкуренты, заводы, затем базовые правила 3.2/3.3), товары,
+//     характеристики, условия, фасовка, отсылки к беседе
+//   → этапы по реестру (runtime/handlers.js): каждый домен — свой
+//     обработчик; ответы без модели (NOT_FOUND, CLARIFICATION) — там же
+//   → снимок пакета [E#] и режим по умолчанию (FACT | COMPARISON | CONFLICT |
+//     PRODUCT_APPLICATION)
 //   → модель с инструментами: если данных не хватает, она сама вызывает
 //     инструмент (runtime/tool-runner.js), результат дописывается в пакет;
 //     лимиты: вызовов, ходов, записей, знаков, общее время; повтор вызова
 //     не выполняется; «Стоп» прекращает всё
-//   → проверка ответа (runtime/context.js → checkAnswer)
+//   → проверка ответа: общая (runtime/context.js → checkAnswer), затем
+//     проверки доменов по реестру
 //   → поток: status, meta, delta, reset, done
 //
 // Агент ничего не пишет в базу. Состояние беседы (о каком товаре речь)
@@ -22,33 +21,17 @@
 import { all } from "../../../db/index.js";
 import { config } from "../../../config.js";
 import { routeQuestion, nextState } from "../retrieval/router.js";
-import { matchVariant, VARIANT_SPEC_KEYS } from "../retrieval/specs.js";
-import { searchTerms } from "../retrieval/intent.js";
 import { detectProducts } from "../retrieval/entities.js";
-import { callTool, comparisonRows, toolsForScope } from "../tools/index.js";
+import { toolsForScope } from "../tools/index.js";
 import { createBundle } from "./bundle.js";
-import { selectProperties, fetchProduct, specGroups } from "./plan.js";
 import { createToolRunner } from "./tool-runner.js";
 import { checkAnswer, publicCitation } from "./context.js";
 import { composeSystemPrompt } from "../prompts/system.js";
-import { runIntel, comparisonSuitability } from "../intel/run.js";
-import { useCaseById } from "../intel/usecases.js";
-import { suitabilityMismatch } from "../intel/suitability.js";
-import { applicationSections } from "../intel/profile.js";
-import { FACTORY_INTENTS } from "../retrieval/router.js";
-import { runFactory, renderProductFactory } from "../factory/run.js";
-import { factoryMismatch, inventedDocuments, unsupportedDates } from "../factory/check.js";
-import { COMPETITOR_INTENTS } from "../competitor/route.js";
-import { runCompetitor } from "../competitor/run.js";
 import { dctx } from "../competitor/tools.js";
 import { competitorRegistry } from "../../competitors/index.js";
-import { verdict, analogyHallucination, priceHallucination, sourceHallucination, entityHallucination, missingAsWorse } from "../competitor/check.js";
+import { createTurn, runStages, runChecks, digestLines } from "./handlers.js";
+import { finalizeMode } from "./base-handlers.js";
 
-// Вопрос только о таких характеристиках — вопрос о применении (Phase 3.3).
-const APPLICATION_KEYS = new Set(["water_per_bag", "water_ratio", "water_mix_ratio", "layer_thickness", "layer_thickness_wall", "layer_thickness_floor",
-  "pot_life", "open_time", "adjust_time", "drying_time", "walk_on_time", "consumption", "consumption_per_mm", "consumption_per_10mm", "base_temperature"]);
-
-const MAX_PRODUCTS = 4;
 const MAX_HISTORY = 10;
 
 // Старые реплики: не больше MAX_HISTORY и historyMaxChars знаков, самые
@@ -79,15 +62,11 @@ function forbiddenFor(tenantId, scope, productIds) {
   tenantId, ...productIds, ...levels);
 }
 
-const names = (list) => list.map((n) => `«${n}»`).join(", ").replace(/, ([^,]*)$/, " или $1");
-
 export async function runAgent({ tenantId, scope, question, history = [], state = {}, refBase = 0, provider, onEvent = () => {}, signal, budget: overrides = {} }) {
   const cfg = config.ai.agent;
   const budget = { maxToolCalls: cfg.maxToolCalls, maxTurns: cfg.maxTurns, maxEvidence: cfg.maxEvidence, maxContextChars: cfg.maxContextChars, totalTimeoutMs: cfg.totalTimeoutMs, ...overrides };
   const t0 = Date.now();
   const q = String(question || "").trim().slice(0, 2000);
-  const ctx = { tenantId, scope };
-  const calls = [];
   onEvent("status", { phase: "search", text: "Ищу данные…" });
 
   const catalog = all(`SELECT p.id, p.slug, p.name, p.short_name, p.summary, p.sections, p.spec_tables, c.name AS category
@@ -95,230 +74,15 @@ export async function runAgent({ tenantId, scope, question, history = [], state 
   // 3.5: справочник имён конкурентов — только сотрудникам (гость о
   // конкурентах не узнаёт даже по названию).
   let competitors = [];
-  if (scope !== "public") { try { competitors = competitorRegistry(dctx(ctx)); } catch { competitors = []; } }
+  if (scope !== "public") { try { competitors = competitorRegistry(dctx({ tenantId, scope })); } catch { competitors = []; } }
   const route = routeQuestion(q, { catalog, state, competitors, scope });
   const bundle = createBundle({ scope, refBase, maxEvidence: budget.maxEvidence });
-  const allowed = new Set();
-  const groups = specGroups(route);
-  let mode = null;
-  let fixed = null;
-  let clarification = null;
-  let awaiting = null;
-  let chosenVariant = null;
-  const products = [];
-  let found = [];
 
-  // 3.5: вопрос о конкурентах — свой путь (раньше заводов 3.4 и подбора 3.3).
-  let comp = null;
-  if (COMPETITOR_INTENTS.has(route.intent)) {
-    const tc = Date.now();
-    if (route.unknown.length && !route.competitor.hits.length && scope !== "public") {
-      mode = "NOT_FOUND";
-      fixed = `${names(route.unknown)} нет ни в каталоге Habez, ни в справочнике конкурентов. Сведения о конкурентах вносит администратор; я не угадываю и не ищу в интернете.`;
-    } else {
-      comp = runCompetitor({ route, q, ctx, bundle, calls, allowed, state });
-      if (comp) { mode = comp.mode; if (comp.fixed) fixed = comp.fixed; if (comp.clarification) clarification = comp.clarification; }
-    }
-    if (comp) comp.ms = Date.now() - tc;
-  }
-  // 1. Без модели: товара нет или неясно, о каком речь.
-  if (!mode && !route.products.length) {
-    if (route.unknown.length) {
-      mode = "NOT_FOUND";
-      fixed = `Товара ${names(route.unknown)} в каталоге Habez нет, поэтому данных о нём тоже нет. Проверьте название или спросите о задаче — подскажу, что из ассортимента Habez подходит.`
-        + (competitors.length ? " В справочнике конкурентов такого названия тоже нет." : "");
-    } else if (route.ambiguousProducts.length && route.intent !== "application") {
-      const opts = route.ambiguousProducts[0].candidates.map((p) => p.short_name || p.name);
-      mode = "CLARIFICATION"; awaiting = "product";
-      clarification = { question: `Уточните, какой товар: ${names(opts)}?`, options: opts };
-    } else if (route.needs.includes("which_product")) {
-      const opts = (state.current_products || []).map((s) => catalog.find((p) => p.slug === s)).filter(Boolean).map((p) => p.short_name || p.name);
-      mode = "CLARIFICATION"; awaiting = "product";
-      clarification = { question: `О каком товаре речь: ${names(opts)}?`, options: opts };
-    } else if (route.needs.includes("products")) {
-      mode = "CLARIFICATION"; awaiting = "products";
-      clarification = { question: "Какие товары сравнить? Назовите два–четыре товара, например «ШОВ и СТАНДАРТ».", options: [] };
-    }
-    if (clarification) fixed = clarification.question;
-  }
-  // «Сравни … по трём характеристикам» — каким, не сказано: спрашиваем.
-  if (!mode && route.intent === "comparison" && route.products.length >= 2 && !route.specs.keys.length
-    && /по (дв|тр|четыр|пят|нескольк|\d)[а-яё]* (основн[а-яё]* )?(характеристик|параметр|показател)/i.test(q)) {
-    const opts = ["прочность", "время схватывания", "расход воды"];
-    mode = "CLARIFICATION"; awaiting = null;
-    clarification = { question: `По каким характеристикам сравнить ${names(route.products.map((p) => p.short_name || p.name)).replace(" или ", " и ")}? Например: ${opts.join(", ")}.`, options: [`Сравни ${route.products.map((p) => p.short_name || p.name).join(" и ")} по прочности, времени схватывания и расходу воды`] };
-    fixed = clarification.question;
-  }
-  // Factory Intelligence (Phase 3.4): заводы, ассортимент, документы —
-  // правилами, до модели.
-  let factory = null;
-  if (!mode && FACTORY_INTENTS.has(route.intent)) {
-    factory = runFactory({ route, q, ctx, bundle, calls, allowed, state });
-    mode = factory.mode; if (factory.fixed) fixed = factory.fixed;
-  }
-  // Product Intelligence (Phase 3.3): паспорт, подбор, пригодность,
-  // применение, совместимость — правилами, до модели.
-  let intel = null;
-  let intelMs = 0;
-  if (!mode) {
-    const ti = Date.now();
-    intel = runIntel({ route, q, ctx, catalog, bundle, calls, allowed });
-    intelMs = Date.now() - ti;
-    if (intel) {
-      mode = intel.mode; if (intel.fixed) fixed = intel.fixed;
-      products.push(...intel.products.filter((x) => x.sp !== undefined && x.p));
-      if (intel.variant) chosenVariant = intel.variant;
-    }
-  }
-  // Паспорт товара (3.3) + производитель и заводские документы (3.4) —
-  // только то, что есть в данных.
-  let profileFactory = null;
-  if (intel?.mode === "PRODUCT_PROFILE" && intel.products[0]?.p) {
-    const t = Date.now();
-    const pid = intel.products[0].p.id;
-    const res = callTool("get_factory_documents", { productIds: [pid] }, ctx);
-    calls.push({ name: "get_factory_documents", source: "plan", ms: Date.now() - t, found: res.documents.length });
-    bundle.note("\nПРОИЗВОДИТЕЛЬ / ЗАВОД (в паспорте — коротко, отдельным разделом; статус связи посчитала система):");
-    profileFactory = renderProductFactory({ items: res.products, docs: res.documents, bundle, allowed, scope })[0] || null;
-    if (intel.profile && profileFactory) intel.profile.factory = { status: profileFactory.status, label: profileFactory.label, factory: profileFactory.catalog.factory, documents: profileFactory.documents };
-  }
-  const useCase = route.useCase ? useCaseById(route.useCase) : null;
-  let suitability = intel?.suitability || null;
-  for (const n of route.unknown) if (route.products.length) bundle.note(`ТОВАРА «${n}» В КАТАЛОГЕ HABEZ НЕТ — данных о нём нет, ничего о нём не утверждать.`);
-
-  // 2. План: инструменты чтения по маршруту.
-  if (!mode && route.products.length && route.intent !== "application") {
-    // Сравнение по задаче: характеристики, важные для неё (Comparison 2.0).
-    const keys = route.specs.keys?.length ? route.specs.keys
-      : (route.intent === "comparison" && useCase ? [...new Set([...useCase.keySpecs, ...useCase.requires.flat().map((r) => r.key).filter(Boolean), ...(useCase.against || []).map((r) => r.key)])] : []);
-    const conditions = route.conditions || {};
-    const packaging = route.intent === "packaging";
-    const wantsVariantValue = keys.some((k) => VARIANT_SPEC_KEYS.has(k));
-    const list = route.products.slice(0, MAX_PRODUCTS);
-    if (route.intent === "comparison" && list.length >= 2) {
-      const t1 = Date.now();
-      const cmp = callTool("compare_products", { productIds: list.map((p) => p.id) }, ctx);
-      calls.push({ name: "compare_products", source: "plan", ms: Date.now() - t1, found: cmp.items.length });
-      for (const it of cmp.items) {
-        const t2 = Date.now();
-        const p = callTool("get_product", { productId: it.product.id }, ctx);
-        calls.push({ name: "get_product", source: "plan", ms: Date.now() - t2, found: p ? 1 : 0 });
-        if (!p) continue;
-        p.sections = []; // для сравнения — характеристики, не описания
-        const sel = selectProperties(it, p, { keys, groups, conditions });
-        products.push({ p, sp: it, sel });
-      }
-      cmp.rows = comparisonRows(cmp.items);
-      for (const x of products) {
-        bundle.product(x.p, x.sp, { missing: x.sel.missing, otherConditions: x.sel.otherConditions, strengthAmbiguous: route.specs.ambiguous === "strength", askedConditions: Object.keys(conditions).length ? conditions : null });
-        allowed.add(x.p.id);
-      }
-      bundle.comparison(cmp);
-      if (useCase) suitability = comparisonSuitability({ products, useCase, ctx, bundle, calls });
-    } else {
-      for (const rp of list) {
-        const got = fetchProduct(ctx, rp.id, route, calls);
-        if (!got) continue;
-        const { p, sp } = got;
-        // Фасовка из прошлого вопроса — только если товар тоже из беседы
-        // («а у него?»), а не назван заново.
-        const variant = matchVariant(q, p.variants || [])
-          || (route.productsFrom === "state" && state.current_variant?.product === p.slug ? (p.variants || []).find((v) => v.unit === state.current_variant.unit) : null);
-        // Нужна фасовка, а её не назвали, и значения по фасовкам разные —
-        // спрашиваем, а не выбираем.
-        if (!variant && (wantsVariantValue || (packaging && /сколько/.test(q.toLowerCase()))) && (p.variants || []).length > 1) {
-          const perPallet = new Set(p.variants.map((v) => v.per_pallet));
-          if (keys.some((k) => k === "gtin" || k === "ntin") || perPallet.size > 1) {
-            const opts = p.variants.map((v) => v.unit);
-            mode = "CLARIFICATION"; awaiting = "variant";
-            clarification = { question: `Для какой фасовки ${p.short || p.name}: ${names(opts)}?`, options: opts };
-            fixed = clarification.question;
-            products.push({ p, sp, sel: { missing: [], otherConditions: [] } });
-            break;
-          }
-        }
-        // Сначала отбор (он сверяет строки со ВСЕМИ фасовками), потом из
-        // карточки убираются чужие фасовки.
-        const sel = selectProperties(sp, p, { keys, groups, conditions, variant, packaging });
-        if (variant) { chosenVariant = { product: p.slug, unit: variant.unit }; p.variants = p.variants.filter((v) => v.id === variant.id); }
-        if (route.intent === "conflict") sp.properties = sp.properties.filter((x) => ["conflict", "unresolved"].includes(x.status) || x.hiddenDisagreement || x.hiddenConfidential);
-        // Для вопроса о числе — только разделы карточки со словами вопроса;
-        // для вопроса о применении — ещё разделы, где об этом сказано словами
-        // («толщина наносимого слоя соответствует…»).
-        if (!["product_lookup", "unknown"].includes(route.intent)) {
-          const own = new Set(route.products.map((x) => String(x.short_name || "").toLowerCase().replace(/ё/g, "е")));
-          const terms = searchTerms(q).filter((t) => ![...own].some((n) => n && (n.startsWith(t) || t.startsWith(n))));
-          const appTitles = keys.length && keys.every((k) => APPLICATION_KEYS.has(k)) ? new Set(applicationSections(p, keys)) : new Set();
-          p.sections = (p.sections || []).filter((sec) => appTitles.has(sec.title) || terms.some((t) => sec.text.toLowerCase().replace(/ё/g, "е").includes(t)));
-        }
-        products.push({ p, sp, sel, variant });
-      }
-      if (!mode) {
-        for (const x of products) {
-          bundle.product(x.p, x.sp, {
-            missing: x.sel.missing, otherConditions: x.sel.otherConditions, variant: x.variant,
-            strengthAmbiguous: route.specs.ambiguous === "strength",
-            provenance: ["source", "conflict"].includes(route.intent) && scope !== "public",
-            askedConditions: Object.keys(conditions).length ? conditions : null,
-          });
-          allowed.add(x.p.id);
-        }
-      }
-    }
-    // Спросили характеристику, а её нет ни у одного товара — честное «нет».
-    // (Вопрос о применении, на который карточка отвечает словами, — не «нет».)
-    const textAnswers = products.length === 1 && route.specs.keys.length && route.specs.keys.every((k) => APPLICATION_KEYS.has(k)) && (products[0].p.sections || []).length > 0;
-    if (!mode && !textAnswers && groups.length && products.length && products.every((x) => groups.every((g) => x.sel.missing.includes(g.label)))) {
-      mode = "NOT_FOUND";
-      const other = [...new Set(products.flatMap((x) => x.sel.otherConditions))];
-      fixed = `В данных Habez нет ${groups.map((g) => `«${g.label}»`).join(", ")} для ${products.map((x) => x.p.short || x.p.name).join(" и ")}${Object.keys(route.conditions || {}).length ? " при условии из вопроса" : ""}.`
-        + (other.length ? ` Значения есть только для других условий (${other.join("; ")}) — к вашему вопросу они не относятся.` : "");
-    }
-  } else if (!mode && !route.products.length) {
-    // Товар не назван: подбор по задаче и общий поиск.
-    const t1 = Date.now();
-    found = callTool("search_products", { terms: searchTerms(q).slice(0, 12), limit: 8 }, ctx).items;
-    calls.push({ name: "search_products", source: "plan", ms: Date.now() - t1, found: found.length });
-    if (/смес/i.test(q)) found = found.filter((h) => !/гипсокартон|плит|профил|подвес|краск|грунт/i.test(h.category || ""));
-    found = found.slice(0, 6);
-    bundle.searchHits(found);
-    for (const h of found) allowed.add(h.id);
-    if (!found.length) {
-      const t2 = Date.now();
-      // Сам сервер берёт только строки, где совпало не меньше двух слов
-      // (одно слово в глубине описания — случайность).
-      const items = callTool("search_knowledge", { terms: searchTerms(q).slice(0, 12), limit: 10, minScore: 2 }, ctx).items;
-      calls.push({ name: "search_knowledge", source: "plan", ms: Date.now() - t2, found: items.length });
-      if (items.length) { bundle.knowledge(items); for (const it of items) allowed.add(it.productId); } else {
-        mode = "NOT_FOUND";
-        fixed = "В данных Habez по этому вопросу ничего не нашлось. Уточните название товара (например, «ШОВ», «СТАНДАРТ», «ГКЛ») или задачу.";
-      }
-    }
-  }
-  // Подбор «для швов ГКЛ»: товары того же раздела, что и основание, — не ответ.
-  if (!mode && route.intent === "application" && route.products.length) {
-    const t1 = Date.now();
-    let hits = callTool("search_products", { terms: searchTerms(q).slice(0, 12), limit: 8 }, ctx).items;
-    calls.push({ name: "search_products", source: "plan", ms: Date.now() - t1, found: hits.length });
-    const base = new Set(all(`SELECT DISTINCT category_id AS c FROM products WHERE id IN (${route.products.map(() => "?").join(",")})`, ...route.products.map((p) => p.id)).map((r) => r.c));
-    const catOf = new Map(all("SELECT id, category_id FROM products WHERE tenant_id=?", tenantId).map((r) => [r.id, r.category_id]));
-    hits = hits.filter((h) => !base.has(catOf.get(h.id)));
-    if (/смес/i.test(q)) hits = hits.filter((h) => !/гипсокартон|плит|профил|подвес|краск|грунт/i.test(h.category || ""));
-    found = hits.slice(0, 6);
-    bundle.searchHits(found);
-    for (const h of found) allowed.add(h.id);
-  }
-
+  // 1–2. Этапы по реестру: домены, ответы без модели, план инструментов.
+  const t = runStages(createTurn({ tenantId, scope, q, state, catalog, competitors, route, bundle }));
   const ctxResult = bundle.result();
-  if (!mode) {
-    const disputed = ctxResult.properties.some((p) => ["conflict", "unresolved"].includes(p.status) || p.hiddenDisagreement);
-    mode = route.intent === "comparison" && products.length >= 2 ? "COMPARISON" : disputed ? "CONFLICT" : "FACT";
-    // Вопрос о воде, слое, расходе, времени работы — вопрос о применении.
-    if (["spec_lookup", "condition"].includes(route.intent) && products.length === 1 && route.specs.keys.length && route.specs.keys.every((k) => APPLICATION_KEYS.has(k))) {
-      mode = "PRODUCT_APPLICATION";
-      bundle.note("\nПРИМЕНЕНИЕ: значения выше — структурированные; текст разделов карточки — со своими номерами. Раздели «указано в разделе» и «структурированное значение»; расхождения — все значения; «на мешок» не пересчитывать в «на кг»; общие знания не добавлять.");
-    }
-  }
+  finalizeMode(t, ctxResult);
+  const { mode, fixed, clarification, awaiting, chosenVariant, products, found, suitability, comp, factory, intel, intelMs, profileFactory, useCase, calls, allowed, ctx } = t;
   const tRetrieval = Date.now();
   const conflicts = ctxResult.properties.filter((p) => p.status === "conflict" || p.status === "unresolved");
   const factoryId = factory?.factoryId ?? (profileFactory ? profileFactory.mainFactoryId : undefined);
@@ -368,7 +132,7 @@ export async function runAgent({ tenantId, scope, question, history = [], state 
     const timeout = AbortSignal.timeout(budget.totalTimeoutMs);
     const sig = signal ? AbortSignal.any([signal, timeout]) : timeout;
     const hints = { properties: ctxResult.properties, found: ctxResult.found, variants: ctxResult.variants, unknown: route.unknown, comparison: ctxResult.comparison, mode,
-      lines: [...factoryDigest(factory, profileFactory), ...(comp ? competitorDigest(ctxResult.evidence) : [])] };
+      lines: digestLines(t, ctxResult) };
     for (let turn = 1; turn <= budget.maxTurns; turn += 1) {
       turns = turn;
       // Последний ход — без вызовов: модель отвечает по тому, что есть.
@@ -432,47 +196,13 @@ export async function runAgent({ tenantId, scope, question, history = [], state 
     llmFirstTokenMs: llm && firstTokenAt ? firstTokenAt - tContext : null, llmMs: llm ? tLlm - tContext : 0,
     validateMs: t1 - tLlm, totalMs: t1 - t0,
   };
-  const grounding = {
+  // Общая проверка — выше; проверки доменов — по реестру (handlers.js).
+  const historyText = history.filter((m) => m?.role === "assistant").map((m) => m.content).join("\n");
+  const grounding = runChecks(t, { answer, fixed, final, emptyAnswer, historyText, grounding: {
     grounded: check.grounded, unsupported: check.unsupported, mismatched: check.mismatched, uncited: check.uncited,
     echoed: check.echoed, invalidCitations: check.invalidCitations, forbidden: check.forbidden.length, foreignProducts: check.foreignProducts,
     fromHistory: check.fromHistory || [],
-    // Модель назвала «подходит» то, что система так не оценила.
-    statusMismatch: fixed || !suitability ? [] : suitabilityMismatch(answer, suitability),
-  };
-  if (grounding.statusMismatch.length) grounding.grounded = false;
-  grounding.emptyAnswer = emptyAnswer;
-  if (emptyAnswer) grounding.grounded = false;
-  // Phase 3.4: завод назван изготовителем без основания, выдуманный
-  // документ или дата.
-  const relItems = factory?.productFactory || (profileFactory ? [profileFactory] : []);
-  const docTypesAvailable = [...new Set([...final.evidence.filter((e) => e.kind === "document").map((e) => e.sourceType),
-    ...(factory?.documents || []).map((d) => d.type), ...(/сертифиц|сертификат/i.test(final.text) ? ["certificate"] : [])])];
-  grounding.factoryMismatch = fixed ? [] : factoryMismatch(answer, relItems);
-  grounding.inventedDocuments = fixed || !(factory || profileFactory) ? [] : inventedDocuments(answer, docTypesAvailable);
-  grounding.unsupportedDates = fixed ? [] : unsupportedDates(answer, final.text, q);
-  if (grounding.factoryMismatch.length || grounding.inventedDocuments.length || grounding.unsupportedDates.length) grounding.grounded = false;
-  // 3.5: ответ о конкурентах — выдуманные компании, цены, источники, «полный
-  // аналог» вопреки статусу, вердикты, «нет данных» как «хуже».
-  if (comp && !fixed) {
-    const cmpRows = final.comparison?.rows || [];
-    const lowName = (n) => String(n).toLowerCase().replace(/ё/g, "е");
-    const pairs = [];
-    const oursOf = (x) => [x].filter(Boolean).map(lowName);
-    for (const a of comp.competitor?.analogs || []) pairs.push({ names: [a.competitorProduct].filter(Boolean).map(lowName), ours: oursOf(a.product || comp.competitor.product), status: a.status, relation: a.relation });
-    if (comp.competitor?.analog) pairs.push({ names: [comp.competitor.competitorProduct].filter(Boolean).map(lowName), ours: oursOf(comp.competitor.product), ...comp.competitor.analog });
-    for (const pr of pairs) for (const key of ["names", "ours"]) for (const n of [...pr[key]]) { const qn = n.match(/«([^»]+)»/); if (qn) pr[key].push(qn[1]); }
-    const prices = priceHallucination(answer, final.evidence.filter((e) => e.kind === "price"));
-    grounding.competitor = {
-      verdict: verdict(answer, q),
-      analogy: analogyHallucination(answer, pairs),
-      inventedPrices: prices.invented, uncitedPrices: prices.uncited,
-      inventedSources: sourceHallucination(answer, `${final.text} ${final.evidence.map((e) => `${e.sourceName ?? ""} ${e.value ?? ""}`).join(" ")}`),
-      inventedEntities: entityHallucination(answer, { registry: competitors, dataText: final.text, corpus: catalog.map((p) => `${p.name} ${p.short_name || ""}`).join(" "),
-        question: q, historyText: history.filter((m) => m?.role === "assistant").map((m) => m.content).join("\n") }),
-      missingAsWorse: missingAsWorse(answer, cmpRows.filter((r) => r.cells.some((c) => c.missing)).map((r) => r.label)),
-    };
-    if (Object.values(grounding.competitor).some((v) => v.length)) grounding.grounded = false;
-  }
+  } });
   const metrics = {
     tool_calls: calls.length, tool_calls_plan: calls.filter((c) => c.source === "plan").length, tool_calls_model: calls.filter((c) => c.source === "model").length,
     turns, evidence: final.evidence.length, context_chars: bundle.size().chars,
@@ -512,27 +242,4 @@ export async function runAgent({ tenantId, scope, question, history = [], state 
     model: result.model, latencyMs: result.latencyMs, timings, metrics, stopReason, truncated: stopReason === "max_tokens",
   });
   return result;
-}
-
-// Сводка для заглушки модели (тесты без сети): те же сведения, что в пакете,
-// строками со ссылками.
-function factoryDigest(factory, profileFactory) {
-  const out = [];
-  const b = (refs) => (refs?.length ? ` ${refs.map((r) => `[${r}]`).join("")}` : "");
-  const f = factory?.factory;
-  if (f?.refs) {
-    out.push(`Завод: ${f.name}${b([f.refs.name])}`);
-    if (f.location) out.push(`${f.location.label}: ${f.location.text}${b([f.refs.location])}`);
-    for (const [i, g] of (f.groups || []).entries()) if (f.refs.groups?.[i]) out.push(`Раздел «${g.name}»: ${g.count} товаров${b([f.refs.groups[i]])}`);
-  }
-  for (const x of f?.items || []) out.push(`${x.short}: производство — ${x.label}${b(x.refs)}`);
-  for (const x of [...(factory?.productFactory || []), ...(profileFactory ? [profileFactory] : [])]) out.push(`${x.short}: ${x.relations.map((r) => `${r.factory} — ${r.label}`).join("; ")}${b(x.refs)}`);
-  for (const d of factory?.documents || []) out.push(`Документ: ${d.typeLabel} «${d.title}»${d.date ? `, дата ${d.date}` : ", дата не указана"}${b(d.refs.slice(0, 4))}`);
-  return out;
-}
-
-// 3.5: сводка для заглушки модели — записи справочника, цены и связи.
-function competitorDigest(evidence) {
-  return evidence.filter((e) => ["competitor_record", "price", "analog"].includes(e.kind))
-    .map((e) => `${e.kind === "price" ? `${e.productName}, ${e.label}` : e.label}: ${e.value}${e.kind === "price" ? ` на ${e.source_date}` : ""} [${e.id}]`);
 }

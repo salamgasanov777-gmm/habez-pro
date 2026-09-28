@@ -21,9 +21,9 @@ import { z } from "zod";
 import { resolveProducts } from "./resolver.js";
 import { resolveSpecs, parseConditions, VARIANT_SPEC_KEYS } from "./specs.js";
 import { resolveUseCase, useCaseById } from "../intel/usecases.js";
-import { factoryIntent } from "../factory/route.js";
+import { factoryRoute } from "../factory/route.js";
 import { detectCompetitors, catalogWords } from "../competitor/detect.js";
-import { competitorIntent, COMPETITOR_INTENTS } from "../competitor/route.js";
+import { competitorRoute } from "../competitor/route.js";
 import { detectProductHits, normalizeText } from "./entities.js";
 
 // Phase 3.3: suitability — «подходит ли X для задачи», usage — «как
@@ -32,6 +32,16 @@ import { detectProductHits, normalizeText } from "./entities.js";
 export const INTENTS = ["product_lookup", "spec_lookup", "comparison", "application", "packaging", "condition", "source", "conflict",
   "suitability", "usage", "compatibility", "factory_lookup", "factory_products", "factory_documents", "product_factory", "factory_profile",
   "competitor_lookup", "competitor_products", "analog_lookup", "competitor_comparison", "competitor_price", "unknown"];
+// Реестр доменов маршрутизатора — порядок = приоритет (Phase 4.1).
+export const DOMAIN_ROUTES = [competitorRoute, factoryRoute];
+// Первый домен, узнавший вопрос, правит маршрут (draft); иначе null.
+export function detectDomain(x, draft, routes = DOMAIN_ROUTES) {
+  for (const d of routes) {
+    const hit = d.detect(x);
+    if (hit) { d.apply(draft, hit, x); return d.id; }
+  }
+  return null;
+}
 export const FACTORY_INTENTS = new Set(["factory_lookup", "factory_products", "factory_documents", "product_factory", "factory_profile"]);
 
 const slug = z.string().regex(/^[a-z0-9-]{1,80}$/);
@@ -148,45 +158,21 @@ export function routeQuestion(question, { catalog, state = {}, competitors = [],
 
   // Намерение.
   let intent;
-  // Phase 3.4: заводы и документы — раньше остальных правил: «этого завода»
-  // — не отсылка к товару, «гипсокартон» в вопросе о документах — группа
-  // товаров, а не повод переспрашивать.
-  // 3.5: конкуренты — раньше заводов 3.4: «Что производит ТестСмесь?» —
-  // вопрос о конкуренте, а не «завода нет в данных».
-  const ci = competitorIntent(q, { hits: compHits, ours: products, oursFrom: productsFrom, state, scope, unknown: found.unknown, hasRegistry: competitors.length > 0 });
-  const fi = ci ? null : factoryIntent(q, { products, productsFromQuestion: productsFrom === "question", state, useCase: useCaseFrom === "question" ? useCase : null, specKeys: specs.keys });
-  let factory = null;
-  let ambiguous = found.ambiguous;
-  if (fi) {
-    intent = fi.intent;
-    factory = { docTypes: fi.docTypes, group: fi.group?.label ?? null, more: fi.more, conflictPolicy: !!fi.conflictPolicy, levels: !!fi.levels, overview: !!fi.overview, asked: fi.asked ?? null, from: null };
-    if (["factory_products", "factory_profile", "factory_lookup"].includes(intent)) {
-      if (productsFrom !== "question") { products = []; productsFrom = null; reference = null; }
-      ambiguous = [];
-    } else {
-      // Группа товаров («гипсокартон») — все её товары.
-      if (!products.length && ambiguous.length) { products = ambiguous[0].candidates; productsFrom = "group"; ambiguous = []; }
-      // «Какие документы есть по этим товарам?» после товаров завода — о заводе.
-      if (!products.length && state.current_factory && (/(эт|тех|эти)[а-я]* товар|по ним|у них/.test(q) || ["factory_products", "factory_profile", "factory_lookup"].includes(state.last_intent))) factory.from = "state";
-      // «А документы?» — о текущем товаре.
-      else if (!products.length && prevProduct && !fi.overview && !fi.conflictPolicy && (elliptic || /(у|по|на|для|о) (него|нее|ней|ним|нем)/.test(q))) { products = [prevProduct]; productsFrom = "state"; reference = "single"; }
-    }
-    if (!factory.from && state.current_factory && /(этот|этого|этом|тот|того|том|данн[а-я]*) (завод|производител|площадк)|этот же|тот же/.test(q)) factory.from = "state";
-  }
-  let competitor = null;
-  if (ci) {
-    intent = ci.intent;
-    factory = null; ambiguous = [];
-    competitor = { companies: ci.companies.map((x) => x.id), brands: ci.brands.map((x) => x.id), products: ci.products.map((x) => x.id), from: ci.from,
-      otherBrand: ci.otherBrand, list: !!ci.list, forbidden: !!ci.forbidden, hits: compHits.map((h) => ({ type: h.item.type, id: h.item.id, name: h.item.name, via: h.via })) };
-    // Наш товар — из вопроса; для сравнения и аналогов — ещё из беседы.
-    // Для сравнения наш товар нужен всегда; для аналогов — только если не
-    // назван товар конкурента («Какой товар Habez — аналог Т-Шов?»).
-    if (!products.length && prevProduct && (intent === "competitor_comparison" || (intent === "analog_lookup" && !ci.products.length))) { products = [prevProduct]; productsFrom = "state"; reference = "single"; }
-    if (["competitor_lookup", "competitor_products", "competitor_price"].includes(intent) && productsFrom !== "question") { products = []; productsFrom = null; reference = null; }
-  }
+  // Домены по приоритету (DOMAIN_ROUTES): первый, кто узнал вопрос, задаёт
+  // намерение и правит маршрут; никто — базовые правила 3.2/3.3 ниже.
+  //   конкуренты (3.5) — раньше заводов: «Что производит ТестСмесь?» —
+  //     вопрос о конкуренте, а не «завода нет в данных»;
+  //   заводы (3.4) — раньше базовых правил: «этого завода» — не отсылка к
+  //     товару, «гипсокартон» в вопросе о документах — группа товаров.
+  const x = { q, compHits, products, productsFrom, state, scope, unknown: found.unknown, hasRegistry: competitors.length > 0,
+    useCase: useCaseFrom === "question" ? useCase : null, specKeys: specs.keys, prevProduct, elliptic };
+  const draft = { intent: undefined, products, productsFrom, reference, ambiguous: found.ambiguous, factory: null, competitor: null };
+  const domain = detectDomain(x, draft);
+  ({ intent, products, productsFrom, reference } = draft);
+  let ambiguous = draft.ambiguous;
+  const { factory, competitor } = draft;
   let baseOnly = false;
-  if (!fi && !ci) {
+  if (!domain) {
   const specKeys = specs.keys.filter((k) => !VARIANT_SPEC_KEYS.has(k));
   const usageWords = /как (его |ее |их )?(правильно )?(применя|нанос|нанест|использова|развест|развод|приготов|готов|работать с)|инструкц|порядок (работ|нанесени|приготовлени)|технологи[яю] нанесени/.test(q);
   const suitWords = /подход|подойд|можно (ли )?(его |ее )?(использ|примен|нанос)|годит|пригод|использовать для|применять для/.test(q) || why;
