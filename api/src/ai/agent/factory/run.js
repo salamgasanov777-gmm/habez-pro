@@ -39,7 +39,8 @@ function timed(calls, name, fn, found = (x) => (x ? 1 : 0)) {
 // Какой завод имеется в виду: названный в вопросе, из беседы или завод из
 // реквизитов. Названный, но неизвестный («завод Кнауф») — null.
 function resolveFactory({ q, route, ctx, calls, state }) {
-  const words = q.toLowerCase().replace(/ё/g, "е").match(/[a-zа-я0-9-]{3,}/g) || [];
+  // Длиннее 60 знаков схема search_factories не примет — это не название.
+  const words = (q.toLowerCase().replace(/ё/g, "е").match(/[a-zа-я0-9-]{3,}/g) || []).filter((w) => w.length <= 60);
   const hits = timed(calls, "search_factories", () => callTool("search_factories", { terms: words.slice(0, 12) }, ctx).items, (x) => x.length);
   const named = hits.find((f) => f.id !== "home" && f.matched.length);
   if (named) return { id: named.id, from: "question" };
