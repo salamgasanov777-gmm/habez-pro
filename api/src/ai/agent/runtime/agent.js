@@ -1,10 +1,11 @@
 // Habez AI Agent: один ответ на вопрос.
 //
 //   вопрос
+//   → справочники доменов по реестру (runtime/handlers.js → LOOKUPS)
 //   → маршрут (retrieval/router.js): намерение (домены по приоритету —
-//     конкуренты, заводы, затем базовые правила 3.2/3.3), товары,
+//     DOMAIN_ROUTES, затем базовые правила 3.2/3.3), товары,
 //     характеристики, условия, фасовка, отсылки к беседе
-//   → этапы по реестру (runtime/handlers.js): каждый домен — свой
+//   → этапы по реестру (handlers.js → STAGES): каждый домен — свой
 //     обработчик; ответы без модели (NOT_FOUND, CLARIFICATION) — там же
 //   → снимок пакета [E#] и режим по умолчанию (FACT | COMPARISON | CONFLICT |
 //     PRODUCT_APPLICATION)
@@ -15,6 +16,9 @@
 //   → проверка ответа: общая (runtime/context.js → checkAnswer), затем
 //     проверки доменов по реестру
 //   → поток: status, meta, delta, reset, done
+//
+// Данные доменов в meta, ответе, метриках, ссылках таблиц и состоянии
+// беседы собирает реестр (handlers.js → OUTPUTS); agent.js доменов не знает.
 //
 // Агент ничего не пишет в базу. Состояние беседы (о каком товаре речь)
 // держит клиент: сервер получает его с вопросом и возвращает новое.
@@ -27,9 +31,7 @@ import { createBundle } from "./bundle.js";
 import { createToolRunner } from "./tool-runner.js";
 import { checkAnswer, publicCitation } from "./context.js";
 import { composeSystemPrompt } from "../prompts/system.js";
-import { dctx } from "../competitor/tools.js";
-import { competitorRegistry } from "../../competitors/index.js";
-import { createTurn, runStages, runChecks, digestLines } from "./handlers.js";
+import { createTurn, runStages, runChecks, digestLines, loadLookups, collectOutput, collectRefs, collectState } from "./handlers.js";
 import { finalizeMode } from "./base-handlers.js";
 
 const MAX_HISTORY = 10;
@@ -71,22 +73,19 @@ export async function runAgent({ tenantId, scope, question, history = [], state 
 
   const catalog = all(`SELECT p.id, p.slug, p.name, p.short_name, p.summary, p.sections, p.spec_tables, c.name AS category
     FROM products p LEFT JOIN categories c ON c.id=p.category_id WHERE p.tenant_id=?${scope === "public" ? " AND p.status='published'" : ""}`, tenantId);
-  // 3.5: справочник имён конкурентов — только сотрудникам (гость о
-  // конкурентах не узнаёт даже по названию).
-  let competitors = [];
-  if (scope !== "public") { try { competitors = competitorRegistry(dctx({ tenantId, scope })); } catch { competitors = []; } }
-  const route = routeQuestion(q, { catalog, state, competitors, scope });
+  // Справочники доменов — до маршрута (права на них проверяет домен).
+  const lookups = loadLookups({ tenantId, scope });
+  const route = routeQuestion(q, { catalog, state, scope, ...lookups.data });
   const bundle = createBundle({ scope, refBase, maxEvidence: budget.maxEvidence });
 
   // 1–2. Этапы по реестру: домены, ответы без модели, план инструментов.
-  const t = runStages(createTurn({ tenantId, scope, q, state, catalog, competitors, route, bundle }));
+  const t = runStages(createTurn({ tenantId, scope, q, state, catalog, route, bundle, lookups: lookups.data }));
   const ctxResult = bundle.result();
   finalizeMode(t, ctxResult);
-  const { mode, fixed, clarification, awaiting, chosenVariant, products, found, suitability, comp, factory, intel, intelMs, profileFactory, useCase, calls, allowed, ctx } = t;
+  const { mode, fixed, clarification, awaiting, chosenVariant, products, found, calls, allowed, ctx } = t;
   const tRetrieval = Date.now();
   const conflicts = ctxResult.properties.filter((p) => p.status === "conflict" || p.status === "unresolved");
-  const factoryId = factory?.factoryId ?? (profileFactory ? profileFactory.mainFactoryId : undefined);
-  const next = nextState(route, state, { variant: chosenVariant, awaiting, focus: intel?.focus || null, factoryId: factoryId === null ? undefined : factoryId, competitor: comp?.focus || null });
+  const next = nextState(route, state, { variant: chosenVariant, awaiting, ...collectState(t) });
   const safeRoute = {
     intent: route.intent, products: route.products.map((p) => p.short_name || p.name), productSlugs: route.products.map((p) => p.slug), productsFrom: route.productsFrom,
     specs: route.specs.terms, specKeys: route.specs.keys, ambiguousSpec: route.specs.ambiguous, conditions: route.conditions,
@@ -101,10 +100,7 @@ export async function runAgent({ tenantId, scope, question, history = [], state 
       decisions: c.items, values: c.values.map((v) => (v.hidden ? { hidden: true } : { display: v.display, refs: v.refs })) })),
     withheldProperties: ctxResult.properties.filter((p) => p.hiddenDisagreement).map((p) => ({ product: p.product, label: p.label })),
     comparison: ctxResult.comparison,
-    useCase: useCase ? { id: useCase.id, label: useCase.label } : null,
-    suitability, profile: intel?.profile || null, application: intel?.application || null, compatibility: intel?.compatibility || null,
-    factory: factory?.factory || null, productFactory: factory?.productFactory || (profileFactory ? [profileFactory] : null), documents: factory?.documents || null,
-    competitor: comp?.competitor || null,
+    ...collectOutput(t, "meta"),
     clarification,
     evidenceCount: ctxResult.evidence.length, refBase,
   });
@@ -188,8 +184,8 @@ export async function runAgent({ tenantId, scope, question, history = [], state 
     ? { citations: [], invalidCitations: [], unsupported: [], mismatched: [], uncited: [], echoed: [], forbidden: [], foreignProducts: [], grounded: true }
     : checkAnswer(answer, final.evidence, { question: q, forbidden, catalog, allowedProductIds: allowedIds,
       contextText: final.text, historyText: history.filter((m) => m?.role === "assistant").map((m) => m.content).join("\n"),
-      // «П-Финиш» — товар конкурента, а не наш «ФИНИШ».
-      maskNames: competitors.flatMap((c) => c.names || []) });
+      // Имена из справочников доменов: «П-Финиш» — не наш «ФИНИШ».
+      maskNames: lookups.maskNames });
   const t1 = Date.now();
   const timings = {
     retrievalMs: tRetrieval - t0, contextMs: tContext - tRetrieval,
@@ -206,26 +202,18 @@ export async function runAgent({ tenantId, scope, question, history = [], state 
   const metrics = {
     tool_calls: calls.length, tool_calls_plan: calls.filter((c) => c.source === "plan").length, tool_calls_model: calls.filter((c) => c.source === "model").length,
     turns, evidence: final.evidence.length, context_chars: bundle.size().chars,
-    // Подбор кандидатов, пригодность, паспорт, инструкция — детерминированная часть 3.3.
-    intel_ms: intelMs,
-    // Factory Intelligence: поиск завода, документы, сборка связей в пакет.
-    factory_ms: factory?.timings?.factoryMs ?? 0, documents_ms: factory?.timings?.documentsMs ?? 0, graph_ms: factory?.timings?.graphMs ?? 0,
-    competitor_ms: comp?.ms ?? 0,
+    // Время этапов доменов.
+    ...collectOutput(t, "metrics"),
     retrieval_ms: timings.retrievalMs, context_ms: timings.contextMs, model_ms: timings.llmMs, total_ms: timings.totalMs,
     input_tokens: usage.input_tokens, output_tokens: usage.output_tokens,
   };
   // Источники: на что сослался ответ + ячейки таблицы сравнения (на них
   // можно нажать, даже если в тексте ссылки нет).
-  const tableRefs = new Set([...(final.comparison?.rows || []).flatMap((r) => r.cells.flatMap((c) => c.refs || [])), ...(suitability || []).flatMap((s) => s.refs || []),
-    ...(factory?.productFactory || []).flatMap((x) => x.refs || []), ...(factory?.documents || []).flatMap((d) => d.refs || []).slice(0, 40),
-    ...(factory?.factory?.items || []).flatMap((x) => x.refs || []).slice(0, 40), ...Object.values(factory?.factory?.refs || {}).flat()]);
+  const tableRefs = new Set([...(final.comparison?.rows || []).flatMap((r) => r.cells.flatMap((c) => c.refs || [])), ...collectRefs(t)]);
   const cited = [...check.citations, ...final.evidence.filter((e) => tableRefs.has(e.id) && !check.citations.includes(e))];
   const result = {
-    answer, intent: route.intent, mode, route: safeRoute, scope, stopReason, usage, suitability, useCase: useCase?.id ?? null,
-    profile: intel?.profile || null, application: intel?.application || null, compatibility: intel?.compatibility || null,
-    factory: factory?.factory || null, productFactory: factory?.productFactory || (profileFactory ? [profileFactory] : null), documents: factory?.documents || null,
-    factoryId: factory?.factoryId ?? null,
-    competitor: comp?.competitor || null,
+    answer, intent: route.intent, mode, route: safeRoute, scope, stopReason, usage,
+    ...collectOutput(t, "result"),
     citations: cited.map((e) => publicCitation(e, scope)),
     grounding,
     withheld: check.forbidden.length > 0,

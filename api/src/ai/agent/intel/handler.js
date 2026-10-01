@@ -21,6 +21,24 @@ export const intelStage = {
   },
 };
 
+// Вывод домена (handlers.js → OUTPUTS): задача, пригодность, паспорт,
+// применение, совместимость — в meta и ответ API; время подбора; ссылки
+// карточек пригодности; товары подбора — в состояние беседы.
+export const intelOutput = {
+  id: "intel",
+  meta: (t) => ({
+    useCase: t.useCase ? { id: t.useCase.id, label: t.useCase.label } : null,
+    suitability: t.suitability, profile: t.intel?.profile || null, application: t.intel?.application || null, compatibility: t.intel?.compatibility || null,
+  }),
+  result: (t) => ({
+    suitability: t.suitability, useCase: t.useCase?.id ?? null,
+    profile: t.intel?.profile || null, application: t.intel?.application || null, compatibility: t.intel?.compatibility || null,
+  }),
+  metrics: (t) => ({ intel_ms: t.intelMs }),
+  refs: (t) => (t.suitability || []).flatMap((s) => s.refs || []),
+  state: (t) => ({ focus: t.intel?.focus || null }),
+};
+
 // Модель назвала «подходит» то, что система так не оценила.
 export const intelCheck = {
   id: "suitability-status",

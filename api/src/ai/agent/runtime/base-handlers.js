@@ -17,13 +17,12 @@ import { selectProperties, fetchProduct } from "./plan.js";
 import { comparisonSuitability } from "../intel/run.js";
 import { applicationSections } from "../intel/profile.js";
 import { unsupportedDates } from "../factory/check.js";
+import { names } from "./text.js";
 
 // Вопрос только о таких характеристиках — вопрос о применении (Phase 3.3).
 export const APPLICATION_KEYS = new Set(["water_per_bag", "water_ratio", "water_mix_ratio", "layer_thickness", "layer_thickness_wall", "layer_thickness_floor",
   "pot_life", "open_time", "adjust_time", "drying_time", "walk_on_time", "consumption", "consumption_per_mm", "consumption_per_10mm", "base_temperature"]);
 const MAX_PRODUCTS = 4;
-
-export const names = (list) => list.map((n) => `«${n}»`).join(", ").replace(/, ([^,]*)$/, " или $1");
 
 // 1. Без модели: товара нет или неясно, о каком речь.
 export const resolutionStage = {

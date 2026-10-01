@@ -4,7 +4,9 @@
 import { COMPETITOR_INTENTS } from "./route.js";
 import { runCompetitor } from "./run.js";
 import { verdict, analogyHallucination, priceHallucination, sourceHallucination, entityHallucination, missingAsWorse } from "./check.js";
-import { names } from "../runtime/base-handlers.js";
+import { names } from "../runtime/text.js";
+import { dctx } from "./tools.js";
+import { competitorRegistry } from "../../competitors/index.js";
 
 export const competitorStage = {
   id: "competitor",
@@ -21,6 +23,28 @@ export const competitorStage = {
     }
     if (t.comp) t.comp.ms = Date.now() - tc;
   },
+};
+
+// Справочник имён конкурентов (handlers.js → LOOKUPS) — нужен маршруту до
+// этапов; только сотрудникам: гость о конкурентах не узнаёт даже по
+// названию. Имена маскируются в общей проверке («П-Финиш» — не наш «ФИНИШ»).
+export const competitorLookup = {
+  id: "competitor",
+  load({ tenantId, scope }) {
+    let competitors = [];
+    if (scope !== "public") { try { competitors = competitorRegistry(dctx({ tenantId, scope })); } catch { competitors = []; } }
+    return { data: { competitors }, maskNames: competitors.flatMap((c) => c.names || []) };
+  },
+};
+
+// Вывод домена (handlers.js → OUTPUTS): карточка конкурента в meta и ответ
+// API; время этапа; компания, марка, товар — в состояние беседы.
+export const competitorOutput = {
+  id: "competitor",
+  meta: (t) => ({ competitor: t.comp?.competitor || null }),
+  result: (t) => ({ competitor: t.comp?.competitor || null }),
+  metrics: (t) => ({ competitor_ms: t.comp?.ms ?? 0 }),
+  state: (t) => ({ competitor: t.comp?.focus || null }),
 };
 
 // Ответ о конкурентах: выдуманные компании, цены, источники, «полный

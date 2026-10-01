@@ -32,6 +32,26 @@ export const productFactoryStage = {
   },
 };
 
+// Вывод домена (handlers.js → OUTPUTS): завод, связи товар → завод,
+// документы — в meta и ответ API; время этапов; ссылки таблиц (на них
+// можно нажать); завод — в состояние беседы («этот завод»).
+const productFactoryOf = (t) => t.factory?.productFactory || (t.profileFactory ? [t.profileFactory] : null);
+export const factoryOutput = {
+  id: "factory",
+  meta: (t) => ({ factory: t.factory?.factory || null, productFactory: productFactoryOf(t), documents: t.factory?.documents || null }),
+  result: (t) => ({ factory: t.factory?.factory || null, productFactory: productFactoryOf(t), documents: t.factory?.documents || null, factoryId: t.factory?.factoryId ?? null }),
+  metrics: (t) => ({ factory_ms: t.factory?.timings?.factoryMs ?? 0, documents_ms: t.factory?.timings?.documentsMs ?? 0, graph_ms: t.factory?.timings?.graphMs ?? 0 }),
+  refs: (t) => {
+    const { factory } = t;
+    return [...(factory?.productFactory || []).flatMap((x) => x.refs || []), ...(factory?.documents || []).flatMap((d) => d.refs || []).slice(0, 40),
+      ...(factory?.factory?.items || []).flatMap((x) => x.refs || []).slice(0, 40), ...Object.values(factory?.factory?.refs || {}).flat()];
+  },
+  state: (t) => {
+    const factoryId = t.factory?.factoryId ?? (t.profileFactory ? t.profileFactory.mainFactoryId : undefined);
+    return { factoryId: factoryId === null ? undefined : factoryId };
+  },
+};
+
 // Завод назван изготовителем без основания; выдуманный документ.
 export const factoryCheck = {
   id: "factory",

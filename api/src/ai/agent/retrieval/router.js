@@ -45,7 +45,7 @@ export function detectDomain(x, draft, routes = DOMAIN_ROUTES) {
 export const FACTORY_INTENTS = new Set(["factory_lookup", "factory_products", "factory_documents", "product_factory", "factory_profile"]);
 
 const slug = z.string().regex(/^[a-z0-9-]{1,80}$/);
-export const stateSchema = z.object({
+const baseState = z.object({
   current_product: slug.nullable().optional(),
   current_products: z.array(slug).max(6).optional(),
   current_variant: z.object({ product: slug, unit: z.string().max(80) }).nullable().optional(),
@@ -63,7 +63,13 @@ export const stateSchema = z.object({
   current_competitor_company: z.number().int().positive().nullable().optional(),
   current_competitor_brand: z.number().int().positive().nullable().optional(),
   current_competitor_product: z.number().int().positive().nullable().optional(),
-}).strict();
+});
+// Phase 4.1: поля состояния новых доменов — объявляются здесь регистрацией
+// ({ current_x: схема zod }), значение даёт вывод домена (handlers.js →
+// OUTPUTS → state(t).fields). Схема строгая: состояние приходит от клиента,
+// неизвестное поле отклоняется. Поля 3.3–3.5 — в baseState выше.
+export const STATE_FIELDS = {};
+export const stateSchema = z.lazy(() => baseState.extend(STATE_FIELDS).strict());
 
 const norm = (s) => ` ${String(s || "").toLowerCase().replace(/ё/g, "е").replace(/\s+/g, " ").trim()} `;
 const B = "(?:^|[^а-яa-z0-9])";
@@ -214,7 +220,7 @@ export function routeQuestion(question, { catalog, state = {}, competitors = [],
 }
 
 // Новое состояние: только то, что следует из вопроса и ответа.
-export function nextState(route, prev = {}, { variant = null, awaiting = null, focus = null, factoryId, competitor = null } = {}) {
+export function nextState(route, prev = {}, { variant = null, awaiting = null, focus = null, factoryId, competitor = null, fields = {} } = {}) {
   const slugs = route.products.map((p) => p.slug);
   let currentProducts = prev.current_products || [];
   if (route.intent === "comparison" && slugs.length >= 2) currentProducts = slugs;
@@ -239,5 +245,9 @@ export function nextState(route, prev = {}, { variant = null, awaiting = null, f
     current_competitor_company: competitor ? competitor.company ?? null : prev.current_competitor_company ?? null,
     current_competitor_brand: competitor ? competitor.brand ?? null : prev.current_competitor_brand ?? null,
     current_competitor_product: competitor ? competitor.product ?? null : prev.current_competitor_product ?? null,
+    // Поля новых доменов (STATE_FIELDS): прежнее значение, если домен в
+    // этот раз его не дал.
+    ...Object.fromEntries(Object.keys(STATE_FIELDS).filter((k) => prev[k] !== undefined).map((k) => [k, prev[k]])),
+    ...fields,
   });
 }
