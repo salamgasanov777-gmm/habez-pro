@@ -41,12 +41,15 @@ const MAX_HISTORY = 10;
 
 // Старые реплики: не больше MAX_HISTORY и historyMaxChars знаков, самые
 // свежие важнее. Номера [E#] старых ответов убираются: модель не должна
-// ссылаться на них в новом ответе.
+// ссылаться на них в новом ответе. (?<![ \t]) — пробелы перед номером
+// берутся только с начала цепочки: иначе 8000 пробелов без номера
+// перебираются с каждой позиции (≈50 мс на реплику); замена та же.
+export const HISTORY_REF = /(?<![ \t])[ \t]*\[E\d+\]/g;
 export function cleanHistory(history = [], maxChars = config.ai.agent.historyMaxChars) {
   const out = [];
   for (const m of history.slice(-MAX_HISTORY)) {
     if (!["user", "assistant"].includes(m?.role) || typeof m.content !== "string" || !m.content.trim()) continue;
-    const content = m.content.replace(/[ \t]*\[E\d+\]/g, "").slice(0, 4000);
+    const content = m.content.replace(HISTORY_REF, "").slice(0, 4000);
     if (out.length && out[out.length - 1].role === m.role) out[out.length - 1].content += `\n${content}`;
     else out.push({ role: m.role, content });
   }
