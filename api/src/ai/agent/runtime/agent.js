@@ -13,8 +13,9 @@
 //     инструмент (runtime/tool-runner.js), результат дописывается в пакет;
 //     лимиты: вызовов, ходов, записей, знаков, общее время; повтор вызова
 //     не выполняется; «Стоп» прекращает всё
-//   → проверка ответа: общая (runtime/context.js → checkAnswer), затем
-//     проверки доменов по реестру
+//   → проверка ответа (checks/): вход проверки — ответ, данные [E#],
+//     скрытое от роли, данные доменных проверок; затем общие, доменные
+//     проверки и политика по реестру → находки и прежний grounding
 //   → поток: status, meta, delta, reset, done
 //
 // Данные доменов в meta, ответе, метриках, ссылках таблиц и состоянии
@@ -29,9 +30,11 @@ import { detectProducts } from "../retrieval/entities.js";
 import { toolsForScope } from "../tools/index.js";
 import { createBundle } from "./bundle.js";
 import { createToolRunner } from "./tool-runner.js";
-import { checkAnswer, publicCitation } from "./context.js";
+import { publicCitation } from "./context.js";
+import { buildCheckInput } from "../checks/input.js";
+import { runAnswerChecks } from "../checks/runner.js";
 import { composeSystemPrompt } from "../prompts/system.js";
-import { createTurn, runStages, runChecks, digestLines, loadLookups, collectOutput, collectRefs, collectState } from "./handlers.js";
+import { createTurn, runStages, collectCheckData, digestLines, loadLookups, collectOutput, collectRefs, collectState } from "./handlers.js";
 import { finalizeMode } from "./base-handlers.js";
 
 const MAX_HISTORY = 10;
@@ -178,27 +181,19 @@ export async function runAgent({ tenantId, scope, question, history = [], state 
   const evidenceProducts = detectProducts(final.evidence.map((e) => `${e.value ?? ""} ${e.productName ?? ""} ${e.label ?? ""} ${e.property ?? ""}`).join(" \n "), catalog).map((p) => p.id);
   const allowedIds = new Set([...allowed, ...evidenceProducts]);
   const forbidden = forbiddenFor(tenantId, scope, [...allowedIds]);
-  // Готовый ответ (уточнение, «нет данных») собран сервером из базы, а не
-  // моделью: проверять в нём нечего.
-  const check = fixed
-    ? { citations: [], invalidCitations: [], unsupported: [], mismatched: [], uncited: [], echoed: [], forbidden: [], foreignProducts: [], grounded: true }
-    : checkAnswer(answer, final.evidence, { question: q, forbidden, catalog, allowedProductIds: allowedIds,
-      contextText: final.text, historyText: history.filter((m) => m?.role === "assistant").map((m) => m.content).join("\n"),
-      // Имена из справочников доменов: «П-Финиш» — не наш «ФИНИШ».
-      maskNames: lookups.maskNames });
+  // Проверка ответа (checks/). Готовый ответ (уточнение, «нет данных»)
+  // собран сервером из базы, а не моделью: проверять в нём нечего (fixed).
+  const historyText = history.filter((m) => m?.role === "assistant").map((m) => m.content).join("\n");
+  const checkInput = buildCheckInput({ answer, fixed: !!fixed, emptyAnswer, question: q, historyText, scope, evidence: final.evidence, contextText: final.text,
+    forbidden, catalog, allowedProductIds: allowedIds, maskNames: lookups.maskNames, domains: collectCheckData(t, final) });
+  const checked = runAnswerChecks(checkInput);
+  const { grounding } = checked;
   const t1 = Date.now();
   const timings = {
     retrievalMs: tRetrieval - t0, contextMs: tContext - tRetrieval,
     llmFirstTokenMs: llm && firstTokenAt ? firstTokenAt - tContext : null, llmMs: llm ? tLlm - tContext : 0,
     validateMs: t1 - tLlm, totalMs: t1 - t0,
   };
-  // Общая проверка — выше; проверки доменов — по реестру (handlers.js).
-  const historyText = history.filter((m) => m?.role === "assistant").map((m) => m.content).join("\n");
-  const grounding = runChecks(t, { answer, fixed, final, emptyAnswer, historyText, grounding: {
-    grounded: check.grounded, unsupported: check.unsupported, mismatched: check.mismatched, uncited: check.uncited,
-    echoed: check.echoed, invalidCitations: check.invalidCitations, forbidden: check.forbidden.length, foreignProducts: check.foreignProducts,
-    fromHistory: check.fromHistory || [],
-  } });
   const metrics = {
     tool_calls: calls.length, tool_calls_plan: calls.filter((c) => c.source === "plan").length, tool_calls_model: calls.filter((c) => c.source === "model").length,
     turns, evidence: final.evidence.length, context_chars: bundle.size().chars,
@@ -210,19 +205,23 @@ export async function runAgent({ tenantId, scope, question, history = [], state 
   // Источники: на что сослался ответ + ячейки таблицы сравнения (на них
   // можно нажать, даже если в тексте ссылки нет).
   const tableRefs = new Set([...(final.comparison?.rows || []).flatMap((r) => r.cells.flatMap((c) => c.refs || [])), ...collectRefs(t)]);
-  const cited = [...check.citations, ...final.evidence.filter((e) => tableRefs.has(e.id) && !check.citations.includes(e))];
+  const cited = [...checked.citations, ...final.evidence.filter((e) => tableRefs.has(e.id) && !checked.citations.includes(e))];
   const result = {
     answer, intent: route.intent, mode, route: safeRoute, scope, stopReason, usage,
     ...collectOutput(t, "result"),
     citations: cited.map((e) => publicCitation(e, scope)),
     grounding,
-    withheld: check.forbidden.length > 0,
+    withheld: grounding.forbidden > 0,
     model: llm ? provider.model : null, latencyMs: timings.totalMs, timings, metrics,
     toolCalls: calls.map((c) => ({ name: c.name, source: c.source, found: c.found })),
     sources: final.evidence.length, conflicts: conflicts.length,
     products: products.map((x) => x.p.id), found: found.map((h) => h.id), unknown: route.unknown,
     clarification, state: next, refBase,
     context: final, // для тестов и журнала без содержимого; наружу не отдаётся
+    // Итог проверки по находкам и её вход — для повторной проверки без
+    // модели (checks/recheck.js); наружу не отдаются (во входе — скрытое).
+    verdict: { passed: checked.passed, findings: checked.findings },
+    checkInput,
   };
   onEvent("done", {
     citations: result.withheld ? [] : result.citations, grounding, withheld: result.withheld, mode, clarification,

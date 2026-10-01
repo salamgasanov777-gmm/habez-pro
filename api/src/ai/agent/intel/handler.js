@@ -1,8 +1,8 @@
 // Habez AI (Phase 4.1): обработчик Product Intelligence (3.3) для реестра —
 // паспорт, подбор, пригодность, применение, совместимость (правилами, до
-// модели) и проверка ответа «подходит» вопреки статусу системы.
+// модели). Проверка ответа «подходит» вопреки статусу системы —
+// suitability.js (suitabilityAnswerCheck, реестр checks/registry.js).
 import { runIntel } from "./run.js";
-import { suitabilityMismatch } from "./suitability.js";
 
 export const intelStage = {
   id: "intel",
@@ -37,13 +37,4 @@ export const intelOutput = {
   metrics: (t) => ({ intel_ms: t.intelMs }),
   refs: (t) => (t.suitability || []).flatMap((s) => s.refs || []),
   state: (t) => ({ focus: t.intel?.focus || null }),
-};
-
-// Модель назвала «подходит» то, что система так не оценила.
-export const intelCheck = {
-  id: "suitability-status",
-  run(t, v) {
-    v.grounding.statusMismatch = v.fixed || !t.suitability ? [] : suitabilityMismatch(v.answer, t.suitability);
-    if (v.grounding.statusMismatch.length) v.grounding.grounded = false;
-  },
 };

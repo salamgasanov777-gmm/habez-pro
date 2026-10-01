@@ -16,7 +16,6 @@ import { callTool, comparisonRows } from "../tools/index.js";
 import { selectProperties, fetchProduct } from "./plan.js";
 import { comparisonSuitability } from "../intel/run.js";
 import { applicationSections } from "../intel/profile.js";
-import { unsupportedDates } from "../factory/check.js";
 import { names } from "./text.js";
 
 // Вопрос только о таких характеристиках — вопрос о применении (Phase 3.3).
@@ -223,17 +222,3 @@ export function finalizeMode(t, ctxResult) {
     bundle.note("\nПРИМЕНЕНИЕ: значения выше — структурированные; текст разделов карточки — со своими номерами. Раздели «указано в разделе» и «структурированное значение»; расхождения — все значения; «на мешок» не пересчитывать в «на кг»; общие знания не добавлять.");
   }
 }
-
-// Проверки ответа, общие для всех доменов (порядок — в handlers.js).
-export const emptyAnswerCheck = {
-  id: "empty-answer",
-  run(t, v) { v.grounding.emptyAnswer = v.emptyAnswer; if (v.emptyAnswer) v.grounding.grounded = false; },
-};
-// Дата, которой нет в данных (правило 3.4, действует для любого ответа).
-export const datesCheck = {
-  id: "dates",
-  run(t, v) {
-    v.grounding.unsupportedDates = v.fixed ? [] : unsupportedDates(v.answer, v.final.text, t.q);
-    if (v.grounding.unsupportedDates.length) v.grounding.grounded = false;
-  },
-};

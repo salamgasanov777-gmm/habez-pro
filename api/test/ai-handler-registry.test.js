@@ -35,8 +35,10 @@ const { z } = await import("zod");
 
 const REGISTRIES = () => ({ STAGES: H.STAGES, CHECKS: H.CHECKS, DIGESTS: H.DIGESTS, OUTPUTS: H.OUTPUTS, LOOKUPS: H.LOOKUPS, DOMAIN_ROUTES: R.DOMAIN_ROUTES });
 const baseEntries = new Set(Object.values(B));
-// Домен — запись реестра не из базовых этапов 3.2/3.3.
-const domainEntries = () => Object.values(REGISTRIES()).flat().filter((e) => !baseEntries.has(e));
+// Домен — запись реестра не из базовых этапов 3.2/3.3 и не общая проверка
+// ответа или политика (слой common / policy, Phase 4.2).
+const isBase = (e) => baseEntries.has(e) || ["common", "policy"].includes(e.layer);
+const domainEntries = () => Object.values(REGISTRIES()).flat().filter((e) => !isBase(e));
 const camel = (id) => id.replace(/-([a-z])/g, (_, c) => c.toUpperCase());
 const importsOf = (file) => [...readFileSync(file, "utf8").matchAll(/from "(\.[^"]+)"/g)].map((m) => resolve(dirname(file), m[1]));
 
@@ -95,14 +97,23 @@ function domainLeaks(src, { ids, fields, domainDirs }) {
   }
   return leaks;
 }
-// Папки модулей доменов — куда ведут импорты реестра, кроме runtime/.
-const domainDirs = () => [...new Set(importsOf(HANDLERS).map(dirname).filter((d) => d !== dirname(HANDLERS)))];
+// Папки модулей доменов — где лежат модули, из которых реестры берут записи
+// доменов (импорты handlers.js и реестра проверок checks/registry.js).
+const REGISTRY_FILES = [HANDLERS, resolve(apiRoot, "src/ai/agent/checks/registry.js")];
+async function domainDirsOf() {
+  const domain = new Set(domainEntries());
+  const dirs = new Set();
+  for (const file of REGISTRY_FILES.flatMap(importsOf)) if (Object.values(await import(file)).some((v) => domain.has(v))) dirs.add(dirname(file));
+  return [...dirs];
+}
+let dirsCache;
+const domainDirs = async () => (dirsCache ??= await domainDirsOf());
 
 let observed;
 const observe = async () => (observed ??= await observeStages());
 
 test("реестры: у каждой записи есть id и обязательные методы, id в реестре не повторяются", () => {
-  const need = { STAGES: ["when", "run"], CHECKS: ["run"], DIGESTS: ["lines"], OUTPUTS: [], LOOKUPS: ["load"], DOMAIN_ROUTES: ["detect", "apply"] };
+  const need = { STAGES: ["when", "run"], CHECKS: ["run", "report"], DIGESTS: ["lines"], OUTPUTS: [], LOOKUPS: ["load"], DOMAIN_ROUTES: ["detect", "apply"] };
   const optional = { OUTPUTS: ["meta", "result", "metrics", "refs", "state"] };
   for (const [name, list] of Object.entries(REGISTRIES())) {
     assert.ok(list.length > 0, name);
@@ -119,7 +130,8 @@ test("реестры: у каждой записи есть id и обязате
 // эталоном. Поведение приоритета проверяет эталон и тест ниже.
 test("приоритет: порядок этапов, проверок, доменов маршрута — как до 4.1", () => {
   assert.deepEqual(H.STAGES.map((s) => s.id), ["competitor", "resolution", "criteria", "factory", "intel", "profile-factory", "unknown-notes", "plan", "application-search"]);
-  assert.deepEqual(H.CHECKS.map((c) => c.id), ["suitability-status", "empty-answer", "factory", "dates", "competitor"]);
+  // Проверки ответа: порядок — порядок полей grounding в ответе API (4.2).
+  assert.deepEqual(H.CHECKS.map((c) => c.id), ["numbers", "citations", "forbidden", "products", "suitability-status", "empty-answer", "factory", "dates", "competitor"]);
   assert.deepEqual(R.DOMAIN_ROUTES.map((d) => d.id), ["competitor", "factory"]);
 });
 
@@ -161,12 +173,12 @@ test("agent.js не знает доменов: ни имён, ни их поле
   // Наблюдение что-то нашло — иначе проверка ниже была бы пустой.
   for (const f of ["comp", "factory", "intel", "profileFactory"]) assert.ok(fields.includes(f), `домен пишет t.${f}`);
   const ids = [...new Set(domainEntries().map((e) => e.id))];
-  assert.deepEqual(domainLeaks(readFileSync(AGENT, "utf8"), { ids, fields, domainDirs: domainDirs() }), []);
+  assert.deepEqual(domainLeaks(readFileSync(AGENT, "utf8"), { ids, fields, domainDirs: await domainDirs() }), []);
 });
 
 test("проверка ловит нарушение: доменная ветка, поле или импорт в agent.js", async () => {
   const { writes } = await observe();
-  const opts = { ids: [...new Set(domainEntries().map((e) => e.id))], fields: domainFields(writes), domainDirs: domainDirs() };
+  const opts = { ids: [...new Set(domainEntries().map((e) => e.id))], fields: domainFields(writes), domainDirs: await domainDirs() };
   const src = readFileSync(AGENT, "utf8");
   for (const bad of ["    competitor: t.comp?.competitor || null,", "  const x = t.intel?.profile;", "import { runFactory } from \"../factory/run.js\";", "  if (route.intent === \"factory_lookup\") {}"]) {
     assert.ok(domainLeaks(`${src}\n${bad}\n`, opts).length > 0, bad);

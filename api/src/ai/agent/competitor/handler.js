@@ -1,9 +1,9 @@
 // Habez AI (Phase 4.1): обработчик Competitor Intelligence (3.5) для
 // реестра — вопрос о конкурентах идёт своим путём (раньше заводов 3.4 и
-// подбора 3.3), проверка ответа о конкурентах и сводка для заглушки модели.
+// подбора 3.3) и сводка для заглушки модели. Проверка ответа о конкурентах —
+// check.js (competitorAnswerCheck, реестр checks/registry.js).
 import { COMPETITOR_INTENTS } from "./route.js";
 import { runCompetitor } from "./run.js";
-import { verdict, analogyHallucination, priceHallucination, sourceHallucination, entityHallucination, missingAsWorse } from "./check.js";
 import { names } from "../runtime/text.js";
 import { dctx } from "./tools.js";
 import { competitorRegistry } from "../../competitors/index.js";
@@ -45,35 +45,6 @@ export const competitorOutput = {
   result: (t) => ({ competitor: t.comp?.competitor || null }),
   metrics: (t) => ({ competitor_ms: t.comp?.ms ?? 0 }),
   state: (t) => ({ competitor: t.comp?.focus || null }),
-};
-
-// Ответ о конкурентах: выдуманные компании, цены, источники, «полный
-// аналог» вопреки статусу, вердикты, «нет данных» как «хуже».
-export const competitorCheck = {
-  id: "competitor",
-  run(t, v) {
-    const { comp } = t;
-    if (!comp || v.fixed) return;
-    const { answer, final } = v;
-    const cmpRows = final.comparison?.rows || [];
-    const lowName = (n) => String(n).toLowerCase().replace(/ё/g, "е");
-    const pairs = [];
-    const oursOf = (x) => [x].filter(Boolean).map(lowName);
-    for (const a of comp.competitor?.analogs || []) pairs.push({ names: [a.competitorProduct].filter(Boolean).map(lowName), ours: oursOf(a.product || comp.competitor.product), status: a.status, relation: a.relation });
-    if (comp.competitor?.analog) pairs.push({ names: [comp.competitor.competitorProduct].filter(Boolean).map(lowName), ours: oursOf(comp.competitor.product), ...comp.competitor.analog });
-    for (const pr of pairs) for (const key of ["names", "ours"]) for (const n of [...pr[key]]) { const qn = n.match(/«([^»]+)»/); if (qn) pr[key].push(qn[1]); }
-    const prices = priceHallucination(answer, final.evidence.filter((e) => e.kind === "price"));
-    v.grounding.competitor = {
-      verdict: verdict(answer, t.q),
-      analogy: analogyHallucination(answer, pairs),
-      inventedPrices: prices.invented, uncitedPrices: prices.uncited,
-      inventedSources: sourceHallucination(answer, `${final.text} ${final.evidence.map((e) => `${e.sourceName ?? ""} ${e.value ?? ""}`).join(" ")}`),
-      inventedEntities: entityHallucination(answer, { registry: t.competitors, dataText: final.text, corpus: t.catalog.map((p) => `${p.name} ${p.short_name || ""}`).join(" "),
-        question: t.q, historyText: v.historyText }),
-      missingAsWorse: missingAsWorse(answer, cmpRows.filter((r) => r.cells.some((c) => c.missing)).map((r) => r.label)),
-    };
-    if (Object.values(v.grounding.competitor).some((x) => x.length)) v.grounding.grounded = false;
-  },
 };
 
 // Сводка для заглушки модели — записи справочника, цены и связи.

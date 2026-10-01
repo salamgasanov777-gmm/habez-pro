@@ -15,6 +15,7 @@
 // «подходит», ни «спорно» (для гостя канал — карточка витрины).
 import { parseSpecValue } from "../../knowledge/units.js";
 import { specLabel } from "../retrieval/specs.js";
+import { finding, textsOf } from "../checks/contract.js";
 
 export const STATUSES = ["SUPPORTED", "PARTIALLY_SUPPORTED", "NOT_SUPPORTED", "INSUFFICIENT_DATA", "CONFLICTED"];
 export const STATUS_LABEL = {
@@ -127,3 +128,13 @@ export function suitabilityMismatch(answer, suitability = []) {
   }
   return out;
 }
+
+// Phase 4.2: проверка ответа «подходит» вопреки статусу, который посчитала
+// система (контракт — checks/contract.js). Данные — статусы пригодности.
+const SUITABILITY = { SUITABILITY_MISMATCH: "error" };
+export const suitabilityAnswerCheck = {
+  id: "suitability-status", layer: "domain", codes: SUITABILITY,
+  collect: (t) => ({ suitability: t.suitability ? t.suitability.map((x) => ({ short: x.short, status: x.status })) : null }),
+  run: ({ a }, data) => (data?.suitability ? suitabilityMismatch(a.text, data.suitability).map((n) => finding(SUITABILITY, "SUITABILITY_MISMATCH", n)) : []),
+  report(findings, g) { g.statusMismatch = textsOf(findings, "SUITABILITY_MISMATCH"); },
+};
