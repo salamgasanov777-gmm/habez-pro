@@ -21,9 +21,9 @@ import { z } from "zod";
 import { resolveProducts } from "./resolver.js";
 import { resolveSpecs, parseConditions, VARIANT_SPEC_KEYS } from "./specs.js";
 import { resolveUseCase, useCaseById } from "../intel/usecases.js";
-import { factoryIntent } from "../factory/route.js";
+import { factoryRoute } from "../factory/route.js";
 import { detectCompetitors, catalogWords } from "../competitor/detect.js";
-import { competitorIntent, COMPETITOR_INTENTS } from "../competitor/route.js";
+import { competitorRoute } from "../competitor/route.js";
 import { detectProductHits, normalizeText } from "./entities.js";
 
 // Phase 3.3: suitability — «подходит ли X для задачи», usage — «как
@@ -32,10 +32,20 @@ import { detectProductHits, normalizeText } from "./entities.js";
 export const INTENTS = ["product_lookup", "spec_lookup", "comparison", "application", "packaging", "condition", "source", "conflict",
   "suitability", "usage", "compatibility", "factory_lookup", "factory_products", "factory_documents", "product_factory", "factory_profile",
   "competitor_lookup", "competitor_products", "analog_lookup", "competitor_comparison", "competitor_price", "unknown"];
+// Реестр доменов маршрутизатора — порядок = приоритет (Phase 4.1).
+export const DOMAIN_ROUTES = [competitorRoute, factoryRoute];
+// Первый домен, узнавший вопрос, правит маршрут (draft); иначе null.
+export function detectDomain(x, draft, routes = DOMAIN_ROUTES) {
+  for (const d of routes) {
+    const hit = d.detect(x);
+    if (hit) { d.apply(draft, hit, x); return d.id; }
+  }
+  return null;
+}
 export const FACTORY_INTENTS = new Set(["factory_lookup", "factory_products", "factory_documents", "product_factory", "factory_profile"]);
 
 const slug = z.string().regex(/^[a-z0-9-]{1,80}$/);
-export const stateSchema = z.object({
+const baseState = z.object({
   current_product: slug.nullable().optional(),
   current_products: z.array(slug).max(6).optional(),
   current_variant: z.object({ product: slug, unit: z.string().max(80) }).nullable().optional(),
@@ -53,7 +63,13 @@ export const stateSchema = z.object({
   current_competitor_company: z.number().int().positive().nullable().optional(),
   current_competitor_brand: z.number().int().positive().nullable().optional(),
   current_competitor_product: z.number().int().positive().nullable().optional(),
-}).strict();
+});
+// Phase 4.1: поля состояния новых доменов — объявляются здесь регистрацией
+// ({ current_x: схема zod }), значение даёт вывод домена (handlers.js →
+// OUTPUTS → state(t).fields). Схема строгая: состояние приходит от клиента,
+// неизвестное поле отклоняется. Поля 3.3–3.5 — в baseState выше.
+export const STATE_FIELDS = {};
+export const stateSchema = z.lazy(() => baseState.extend(STATE_FIELDS).strict());
 
 const norm = (s) => ` ${String(s || "").toLowerCase().replace(/ё/g, "е").replace(/\s+/g, " ").trim()} `;
 const B = "(?:^|[^а-яa-z0-9])";
@@ -148,45 +164,21 @@ export function routeQuestion(question, { catalog, state = {}, competitors = [],
 
   // Намерение.
   let intent;
-  // Phase 3.4: заводы и документы — раньше остальных правил: «этого завода»
-  // — не отсылка к товару, «гипсокартон» в вопросе о документах — группа
-  // товаров, а не повод переспрашивать.
-  // 3.5: конкуренты — раньше заводов 3.4: «Что производит ТестСмесь?» —
-  // вопрос о конкуренте, а не «завода нет в данных».
-  const ci = competitorIntent(q, { hits: compHits, ours: products, oursFrom: productsFrom, state, scope, unknown: found.unknown, hasRegistry: competitors.length > 0 });
-  const fi = ci ? null : factoryIntent(q, { products, productsFromQuestion: productsFrom === "question", state, useCase: useCaseFrom === "question" ? useCase : null, specKeys: specs.keys });
-  let factory = null;
-  let ambiguous = found.ambiguous;
-  if (fi) {
-    intent = fi.intent;
-    factory = { docTypes: fi.docTypes, group: fi.group?.label ?? null, more: fi.more, conflictPolicy: !!fi.conflictPolicy, levels: !!fi.levels, overview: !!fi.overview, asked: fi.asked ?? null, from: null };
-    if (["factory_products", "factory_profile", "factory_lookup"].includes(intent)) {
-      if (productsFrom !== "question") { products = []; productsFrom = null; reference = null; }
-      ambiguous = [];
-    } else {
-      // Группа товаров («гипсокартон») — все её товары.
-      if (!products.length && ambiguous.length) { products = ambiguous[0].candidates; productsFrom = "group"; ambiguous = []; }
-      // «Какие документы есть по этим товарам?» после товаров завода — о заводе.
-      if (!products.length && state.current_factory && (/(эт|тех|эти)[а-я]* товар|по ним|у них/.test(q) || ["factory_products", "factory_profile", "factory_lookup"].includes(state.last_intent))) factory.from = "state";
-      // «А документы?» — о текущем товаре.
-      else if (!products.length && prevProduct && !fi.overview && !fi.conflictPolicy && (elliptic || /(у|по|на|для|о) (него|нее|ней|ним|нем)/.test(q))) { products = [prevProduct]; productsFrom = "state"; reference = "single"; }
-    }
-    if (!factory.from && state.current_factory && /(этот|этого|этом|тот|того|том|данн[а-я]*) (завод|производител|площадк)|этот же|тот же/.test(q)) factory.from = "state";
-  }
-  let competitor = null;
-  if (ci) {
-    intent = ci.intent;
-    factory = null; ambiguous = [];
-    competitor = { companies: ci.companies.map((x) => x.id), brands: ci.brands.map((x) => x.id), products: ci.products.map((x) => x.id), from: ci.from,
-      otherBrand: ci.otherBrand, list: !!ci.list, forbidden: !!ci.forbidden, hits: compHits.map((h) => ({ type: h.item.type, id: h.item.id, name: h.item.name, via: h.via })) };
-    // Наш товар — из вопроса; для сравнения и аналогов — ещё из беседы.
-    // Для сравнения наш товар нужен всегда; для аналогов — только если не
-    // назван товар конкурента («Какой товар Habez — аналог Т-Шов?»).
-    if (!products.length && prevProduct && (intent === "competitor_comparison" || (intent === "analog_lookup" && !ci.products.length))) { products = [prevProduct]; productsFrom = "state"; reference = "single"; }
-    if (["competitor_lookup", "competitor_products", "competitor_price"].includes(intent) && productsFrom !== "question") { products = []; productsFrom = null; reference = null; }
-  }
+  // Домены по приоритету (DOMAIN_ROUTES): первый, кто узнал вопрос, задаёт
+  // намерение и правит маршрут; никто — базовые правила 3.2/3.3 ниже.
+  //   конкуренты (3.5) — раньше заводов: «Что производит ТестСмесь?» —
+  //     вопрос о конкуренте, а не «завода нет в данных»;
+  //   заводы (3.4) — раньше базовых правил: «этого завода» — не отсылка к
+  //     товару, «гипсокартон» в вопросе о документах — группа товаров.
+  const x = { q, compHits, products, productsFrom, state, scope, unknown: found.unknown, hasRegistry: competitors.length > 0,
+    useCase: useCaseFrom === "question" ? useCase : null, specKeys: specs.keys, prevProduct, elliptic };
+  const draft = { intent: undefined, products, productsFrom, reference, ambiguous: found.ambiguous, factory: null, competitor: null };
+  const domain = detectDomain(x, draft);
+  ({ intent, products, productsFrom, reference } = draft);
+  let ambiguous = draft.ambiguous;
+  const { factory, competitor } = draft;
   let baseOnly = false;
-  if (!fi && !ci) {
+  if (!domain) {
   const specKeys = specs.keys.filter((k) => !VARIANT_SPEC_KEYS.has(k));
   const usageWords = /как (его |ее |их )?(правильно )?(применя|нанос|нанест|использова|развест|развод|приготов|готов|работать с)|инструкц|порядок (работ|нанесени|приготовлени)|технологи[яю] нанесени/.test(q);
   const suitWords = /подход|подойд|можно (ли )?(его |ее )?(использ|примен|нанос)|годит|пригод|использовать для|применять для/.test(q) || why;
@@ -228,7 +220,7 @@ export function routeQuestion(question, { catalog, state = {}, competitors = [],
 }
 
 // Новое состояние: только то, что следует из вопроса и ответа.
-export function nextState(route, prev = {}, { variant = null, awaiting = null, focus = null, factoryId, competitor = null } = {}) {
+export function nextState(route, prev = {}, { variant = null, awaiting = null, focus = null, factoryId, competitor = null, fields = {} } = {}) {
   const slugs = route.products.map((p) => p.slug);
   let currentProducts = prev.current_products || [];
   if (route.intent === "comparison" && slugs.length >= 2) currentProducts = slugs;
@@ -253,5 +245,9 @@ export function nextState(route, prev = {}, { variant = null, awaiting = null, f
     current_competitor_company: competitor ? competitor.company ?? null : prev.current_competitor_company ?? null,
     current_competitor_brand: competitor ? competitor.brand ?? null : prev.current_competitor_brand ?? null,
     current_competitor_product: competitor ? competitor.product ?? null : prev.current_competitor_product ?? null,
+    // Поля новых доменов (STATE_FIELDS): прежнее значение, если домен в
+    // этот раз его не дал.
+    ...Object.fromEntries(Object.keys(STATE_FIELDS).filter((k) => prev[k] !== undefined).map((k) => [k, prev[k]])),
+    ...fields,
   });
 }

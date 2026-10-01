@@ -66,3 +66,28 @@ export function askedAttribute(q) {
   if (/где (находится|расположен)|адрес|местоположен/.test(q)) return "location";
   return null;
 }
+
+// Phase 4.1: домен «заводы» в реестре маршрутизатора (router.js →
+// DOMAIN_ROUTES). detect — узнал ли домен вопрос; apply — как это меняет
+// маршрут: товары, группа, «этот завод» из беседы. Код перенесён из
+// router.js без изменений.
+export const factoryRoute = {
+  id: "factory",
+  detect: (x) => factoryIntent(x.q, { products: x.products, productsFromQuestion: x.productsFrom === "question", state: x.state, useCase: x.useCase, specKeys: x.specKeys }),
+  apply(d, fi, x) {
+    d.intent = fi.intent;
+    d.factory = { docTypes: fi.docTypes, group: fi.group?.label ?? null, more: fi.more, conflictPolicy: !!fi.conflictPolicy, levels: !!fi.levels, overview: !!fi.overview, asked: fi.asked ?? null, from: null };
+    if (["factory_products", "factory_profile", "factory_lookup"].includes(d.intent)) {
+      if (d.productsFrom !== "question") { d.products = []; d.productsFrom = null; d.reference = null; }
+      d.ambiguous = [];
+    } else {
+      // Группа товаров («гипсокартон») — все её товары.
+      if (!d.products.length && d.ambiguous.length) { d.products = d.ambiguous[0].candidates; d.productsFrom = "group"; d.ambiguous = []; }
+      // «Какие документы есть по этим товарам?» после товаров завода — о заводе.
+      if (!d.products.length && x.state.current_factory && (/(эт|тех|эти)[а-я]* товар|по ним|у них/.test(x.q) || ["factory_products", "factory_profile", "factory_lookup"].includes(x.state.last_intent))) d.factory.from = "state";
+      // «А документы?» — о текущем товаре.
+      else if (!d.products.length && x.prevProduct && !fi.overview && !fi.conflictPolicy && (x.elliptic || /(у|по|на|для|о) (него|нее|ней|ним|нем)/.test(x.q))) { d.products = [x.prevProduct]; d.productsFrom = "state"; d.reference = "single"; }
+    }
+    if (!d.factory.from && x.state.current_factory && /(этот|этого|этом|тот|того|том|данн[а-я]*) (завод|производител|площадк)|этот же|тот же/.test(x.q)) d.factory.from = "state";
+  },
+};
