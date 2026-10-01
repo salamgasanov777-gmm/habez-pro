@@ -21,23 +21,26 @@
 //
 // Всё, что домен отдаёт наружу, идёт через реестр, а не через agent.js:
 //   LOOKUPS  справочники до маршрута ({ id, load(ctx) → { data, maskNames } })
+//   CHECKS   проверки ответа (checks/registry.js), их данные — collect(t, final)
 //   OUTPUTS  вывод домена: { id, meta(t), result(t), metrics(t), refs(t),
 //            state(t) } — любой метод можно не задавать. meta/result/metrics —
 //            поля ответа (блоком, в порядке реестра); refs — номера [E#]
 //            таблиц; state — параметры nextState, свои поля состояния —
 //            в state(t).fields (поле объявляется в router.js → STATE_FIELDS).
-import { competitorStage, competitorCheck, competitorDigest, competitorLookup, competitorOutput } from "../competitor/handler.js";
-import { factoryStage, productFactoryStage, factoryCheck, factoryDigest, factoryOutput } from "../factory/handler.js";
-import { intelStage, intelCheck, intelOutput } from "../intel/handler.js";
-import { resolutionStage, criteriaStage, unknownNotesStage, planStage, applicationSearchStage, emptyAnswerCheck, datesCheck } from "./base-handlers.js";
+import { competitorStage, competitorDigest, competitorLookup, competitorOutput } from "../competitor/handler.js";
+import { factoryStage, productFactoryStage, factoryDigest, factoryOutput } from "../factory/handler.js";
+import { intelStage, intelOutput } from "../intel/handler.js";
+import { resolutionStage, criteriaStage, unknownNotesStage, planStage, applicationSearchStage } from "./base-handlers.js";
+import { CHECKS } from "../checks/registry.js";
 import { useCaseById } from "../intel/usecases.js";
 import { specGroups } from "./plan.js";
 
 export const STAGES = [competitorStage, resolutionStage, criteriaStage, factoryStage, intelStage, productFactoryStage, unknownNotesStage, planStage, applicationSearchStage];
 
-// Проверки ответа после общей (checkAnswer) — порядок задаёт порядок полей
-// grounding в ответе API.
-export const CHECKS = [intelCheck, emptyAnswerCheck, factoryCheck, datesCheck, competitorCheck];
+// Проверки ответа (Phase 4.2) — реестр checks/registry.js: модуль без базы,
+// его читает и повторная проверка сохранённого ответа. Здесь — для полноты
+// реестра и сбора данных доменных проверок из хода ответа.
+export { CHECKS };
 
 // Сводки для заглушки модели (hints.lines) — порядок строк.
 export const DIGESTS = [factoryDigest, competitorDigest];
@@ -79,10 +82,8 @@ export function runStages(t, stages = STAGES) {
   return t;
 }
 
-export function runChecks(t, v, checks = CHECKS) {
-  for (const c of checks) c.run(t, v);
-  return v.grounding;
-}
+// Данные доменных проверок (collect) из хода ответа — не из текста ответа.
+export const collectCheckData = (t, final, checks = CHECKS) => Object.fromEntries(checks.filter((c) => c.collect).map((c) => [c.id, c.collect(t, final)]));
 
 export const digestLines = (t, ctxResult, digests = DIGESTS) => digests.flatMap((d) => d.lines(t, ctxResult));
 

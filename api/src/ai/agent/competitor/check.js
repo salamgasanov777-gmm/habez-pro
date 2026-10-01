@@ -16,9 +16,13 @@
 // хуже») ошибкой не считаются.
 import { unknownNames, normalizeText } from "../retrieval/entities.js";
 import { detectCompetitors } from "./detect.js";
+import { lastValue } from "../checks/text.js";
+import { finding, textsOf } from "../checks/contract.js";
 
 const low = (s) => String(s ?? "").toLowerCase().replace(/ё/g, "е");
 const linesOf = (t) => String(t || "").split(/\n+|(?<=[.!?])\s+(?=[А-ЯA-Z])/);
+// Фразы ответа в нижнем регистре — один раз на ответ для всех проверок.
+const lowLines = lastValue((answer) => linesOf(low(answer)));
 const NEGATED = /(^|[^а-я])(не|нельзя|нет|без)([^а-я]|$)|не выбира|не определя|не оценива|не делает вывод/;
 
 const VERDICT = /(^|[^а-я])(лучше|хуже|выгодн[а-я]*|качественн[а-я]*|надежн[а-я]*|рекоменду[а-я]*|советую|победител[а-я]*|предпочтительн[а-я]*|оптимальн[а-я]* выбор)(?=$|[^а-я])/;
@@ -27,7 +31,7 @@ const VERDICT = /(^|[^а-я])(лучше|хуже|выгодн[а-я]*|каче�
 export function verdict(answer, question = "") {
   const out = [];
   const asked = low(question);
-  for (const line of linesOf(low(answer))) {
+  for (const line of lowLines(answer)) {
     const m = line.match(VERDICT);
     if (!m || NEGATED.test(line)) continue;
     const quoted = [...line.matchAll(/[«"“]([^»"”]+)[»"”]/g)].some((x) => x[1].includes(m[2]));
@@ -53,7 +57,7 @@ const ATTRIBUTED = /источник|указыва|указан|сотрудн�
 // pairs: [{ names: ["т-шов", …], ours: ["шов"], status, relation }] — связи из данных ответа.
 export function analogyHallucination(answer, pairs = []) {
   const out = [];
-  for (const line of linesOf(low(answer))) {
+  for (const line of lowLines(answer)) {
     const m = line.match(SAME);
     if (!m || NEGATED.test(line.replace(m[0], ""))) continue;
     const pair = pairsOf(line, pairs)[0];
@@ -62,7 +66,7 @@ export function analogyHallucination(answer, pairs = []) {
     if (!pair || !(pair.status === "CONFIRMED" && pair.relation === "analog") || /идентич|одинаков|такой же|то же самое/.test(m[0])) out.push(m[0]);
   }
   // «Аналог» без оговорки о предполагаемой или спорной связи.
-  for (const line of linesOf(low(answer))) {
+  for (const line of lowLines(answer)) {
     if (!/(^|[^а-я])аналог/.test(line) || /предполож|не подтвержд|частичн|противореч|не является|не аналог|спорн|не установ/.test(line)) continue;
     const pair = pairsOf(line, pairs).find((p) => p.status === "INFERRED" || (p.status === "CONFLICTED" && !ATTRIBUTED.test(line)));
     if (pair) out.push(`аналог (${pair.status})`);
@@ -120,7 +124,7 @@ export function entityHallucination(answer, { registry = [], dataText = "", corp
 const WORSE = /(хуже|уступа[а-я]*|слабее|проигрыва[а-я]*|не облада[а-я]*|не имеет|равн[а-я]* нулю|нулев[а-я]*|(?<![\d.,])0\s*(мпа|мин|мм|%))/;
 export function missingAsWorse(answer, missingLabels = []) {
   const out = [];
-  for (const line of linesOf(low(answer))) {
+  for (const line of lowLines(answer)) {
     // Подпись строки — в любом падеже: «прочность на изгиб» / «прочности на изгиб».
     const mentions = (l) => { const ws = low(l).split(/[^а-яa-z0-9]+/).filter((w) => w.length >= 4); return ws.length && ws.every((w) => line.includes(w.slice(0, Math.max(4, w.length - 2)))); };
     if (!missingLabels.some((l) => l && mentions(l))) continue;
@@ -130,3 +134,52 @@ export function missingAsWorse(answer, missingLabels = []) {
   }
   return [...new Set(out)];
 }
+
+// Phase 4.2: проверка ответа о конкурентах (контракт — checks/contract.js).
+// Данные собираются из хода ответа: связи аналогов со статусом, цены из
+// данных (суммы в копейках), справочник имён, текст данных, строки
+// сравнения без значения. Относится только к ответу о конкурентах.
+const COMPETITOR = { COMPETITOR_VERDICT: "error", ANALOGY_OVERCLAIM: "error", INVENTED_PRICE: "error", UNCITED_PRICE: "error",
+  INVENTED_SOURCE: "error", INVENTED_ENTITY: "error", MISSING_AS_WORSE: "error" };
+export const competitorAnswerCheck = {
+  id: "competitor", layer: "domain", codes: COMPETITOR,
+  collect(t, final) {
+    const { comp } = t;
+    if (!comp) return { active: false };
+    const pairs = [];
+    const oursOf = (x) => [x].filter(Boolean).map(low);
+    for (const a of comp.competitor?.analogs || []) pairs.push({ names: [a.competitorProduct].filter(Boolean).map(low), ours: oursOf(a.product || comp.competitor.product), status: a.status, relation: a.relation });
+    if (comp.competitor?.analog) pairs.push({ names: [comp.competitor.competitorProduct].filter(Boolean).map(low), ours: oursOf(comp.competitor.product), ...comp.competitor.analog });
+    for (const pr of pairs) for (const key of ["names", "ours"]) for (const n of [...pr[key]]) { const qn = n.match(/«([^»]+)»/); if (qn) pr[key].push(qn[1]); }
+    return {
+      active: true, pairs,
+      prices: final.evidence.filter((e) => e.kind === "price").map((e) => ({ id: e.id, amountMinor: e.amountMinor })),
+      sourceText: `${final.text} ${final.evidence.map((e) => `${e.sourceName ?? ""} ${e.value ?? ""}`).join(" ")}`,
+      registry: t.competitors,
+      corpus: t.catalog.map((p) => `${p.name} ${p.short_name || ""}`).join(" "),
+      missingLabels: (final.comparison?.rows || []).filter((r) => r.cells.some((c) => c.missing)).map((r) => r.label),
+    };
+  },
+  applies: (input) => !!input.domains?.competitor?.active && !input.fixed,
+  run({ a, input }, data) {
+    const answer = a.text;
+    const f = (code, list) => list.map((x) => finding(COMPETITOR, code, x));
+    const prices = priceHallucination(answer, data.prices);
+    return [
+      ...f("COMPETITOR_VERDICT", verdict(answer, input.question)),
+      ...f("ANALOGY_OVERCLAIM", analogyHallucination(answer, data.pairs)),
+      ...f("INVENTED_PRICE", prices.invented), ...f("UNCITED_PRICE", prices.uncited),
+      ...f("INVENTED_SOURCE", sourceHallucination(answer, data.sourceText)),
+      ...f("INVENTED_ENTITY", entityHallucination(answer, { registry: data.registry, dataText: input.contextText, corpus: data.corpus, question: input.question, historyText: input.historyText })),
+      ...f("MISSING_AS_WORSE", missingAsWorse(answer, data.missingLabels)),
+    ];
+  },
+  report(findings, g) {
+    g.competitor = {
+      verdict: textsOf(findings, "COMPETITOR_VERDICT"), analogy: textsOf(findings, "ANALOGY_OVERCLAIM"),
+      inventedPrices: textsOf(findings, "INVENTED_PRICE"), uncitedPrices: textsOf(findings, "UNCITED_PRICE"),
+      inventedSources: textsOf(findings, "INVENTED_SOURCE"), inventedEntities: textsOf(findings, "INVENTED_ENTITY"),
+      missingAsWorse: textsOf(findings, "MISSING_AS_WORSE"),
+    };
+  },
+};

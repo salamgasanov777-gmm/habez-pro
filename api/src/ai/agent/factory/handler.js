@@ -1,10 +1,10 @@
 // Habez AI (Phase 4.1): обработчик Factory Intelligence (3.4) для реестра —
 // заводы, ассортимент, документы (правилами, до модели), завод в паспорте
-// товара (3.3), проверка ответа и сводка для заглушки модели.
+// товара (3.3) и сводка для заглушки модели. Проверка ответа — check.js
+// (factoryAnswerCheck, реестр checks/registry.js).
 import { callTool } from "../tools/index.js";
 import { FACTORY_INTENTS } from "../retrieval/router.js";
 import { runFactory, renderProductFactory } from "./run.js";
-import { factoryMismatch, inventedDocuments } from "./check.js";
 
 export const factoryStage = {
   id: "factory",
@@ -49,20 +49,6 @@ export const factoryOutput = {
   state: (t) => {
     const factoryId = t.factory?.factoryId ?? (t.profileFactory ? t.profileFactory.mainFactoryId : undefined);
     return { factoryId: factoryId === null ? undefined : factoryId };
-  },
-};
-
-// Завод назван изготовителем без основания; выдуманный документ.
-export const factoryCheck = {
-  id: "factory",
-  run(t, v) {
-    const { factory, profileFactory } = t;
-    const relItems = factory?.productFactory || (profileFactory ? [profileFactory] : []);
-    const docTypesAvailable = [...new Set([...v.final.evidence.filter((e) => e.kind === "document").map((e) => e.sourceType),
-      ...(factory?.documents || []).map((d) => d.type), ...(/сертифиц|сертификат/i.test(v.final.text) ? ["certificate"] : [])])];
-    v.grounding.factoryMismatch = v.fixed ? [] : factoryMismatch(v.answer, relItems);
-    v.grounding.inventedDocuments = v.fixed || !(factory || profileFactory) ? [] : inventedDocuments(v.answer, docTypesAvailable);
-    if (v.grounding.factoryMismatch.length || v.grounding.inventedDocuments.length) v.grounding.grounded = false;
   },
 };
 

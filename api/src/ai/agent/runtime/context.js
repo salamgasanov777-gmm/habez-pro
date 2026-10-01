@@ -2,10 +2,14 @@
 //
 // Контекст (пакет доказательств с номерами [E#]) собирает runtime/bundle.js;
 // buildContext — прежний вход Phase 3.1, теперь поверх него.
-// Проверка ответа (checkAnswer) и безопасные для интерфейса ссылки
-// (publicCitation) — здесь.
+// Проверка ответа (checkAnswer — прежний вход в checks/) и безопасные для
+// интерфейса ссылки (publicCitation) — здесь.
 import { createBundle, sourceLabel } from "./bundle.js";
-import { detectProducts } from "../retrieval/entities.js";
+import { numbersCheck, citationsCheck, productsCheck } from "../checks/common.js";
+import { forbiddenCheck } from "../checks/policy.js";
+import { runAnswerChecks } from "../checks/runner.js";
+import { buildCheckInput } from "../checks/input.js";
+import { textsOf } from "../checks/contract.js";
 
 export { sourceLabel };
 
@@ -18,152 +22,17 @@ export function buildContext({ scope, products, specs, searchHits, unknown = [],
   return b.result();
 }
 
-// Проверка ответа (validation). Ловит:
-//   invalidCitations — ссылка на номер, которого нет в реестре ЭТОГО ответа
-//                      (номера прошлых ответов модель не видит: история
-//                      приходит без них);
-//   unsupported      — число с единицей, которого нет в данных именно с этой
-//                      единицей («5 МПа» при «0,5 МПа» и «5–7 л» — ошибка);
-//   mismatched       — число есть в данных, но не в тех строках, на которые
-//                      ссылается эта строка ответа, или с другой единицей
-//                      (смешаны фасовки, условия, товары);
-//   uncited          — число с единицей без ссылки, которое нигде в ответе
-//                      не стоит рядом со своей ссылкой;
-//   echoed           — число из вопроса, которого нет в данных, повторено без
-//                      ссылки или с отрицанием («5 МПа в данных нет») — не
-//                      ошибка;
-//   forbidden        — значение или документ, которые роли не положены;
-//   foreignProducts  — товар, которого нет ни в данных ответа, ни в их тексте;
-//   fromHistory      — число из прошлого ответа этой беседы, которого нет в
-//                      данных этого ответа: не ошибка, но «не перепроверено»
-//                      (историю присылает браузер — доказательством она не
-//                      считается).
-// Данные — это записи [E#] вместе со строкой свойства (участники спора,
-// условие) и пометки контекста (contextText: «другие условия: 7 сут»).
-// grounded — нет ошибок, кроме echoed и fromHistory.
-const NUM_UNIT = /(\d+(?:[.,]\d+)?)\s*(?:–|-|—|…|\.\.\.)?\s*(\d+(?:[.,]\d+)?)?\s*(мпа|мм|см|кг\/м³|кг\/м3|кг\/м²|кг\/м2|г\/м²|г\/м2|мл\/м²|мл\/м2|л\/кг|кг|г|мл|л(?:итр(?:а|ов)?)?|мин(?:ут[аы]?)?|ч(?:ас(?:а|ов)?)?|сут(?:ок|ки)?|месяц(?:а|ев)?|мес|м²|м2|м|%|шт|циклов|°c|°)(?![а-яa-z])/giu;
-const NUM = /\d+(?:[.,]\d+)?/g;
-const COMMON_WORDS = new Set(["стандарт"]);
-const DENIAL = /(^|[^а-яё])(нет|не)([^а-яё]|$)|отсутству|не подтвержд/i;
-const canon = (s) => String(s).replace(",", ".").replace(/\.0+$/, "");
-const FAMILY = [
-  [/^мпа$/, "mpa"], [/^мм$/, "mm"], [/^см$/, "cm"], [/^м[²2]$/, "m2"], [/^м$/, "m"],
-  [/^кг\/м[³3]$/, "kg_m3"], [/^кг\/м[²2]$/, "kg_m2"], [/^г\/м[²2]$/, "g_m2"], [/^мл\/м[²2]$/, "ml_m2"], [/^л\/кг$/, "l_kg"],
-  [/^кг$/, "kg"], [/^г$/, "g"], [/^мл$/, "ml"], [/^л/, "l"], [/^мин/, "min"], [/^ч/, "h"], [/^сут/, "day"], [/^мес/, "month"],
-  [/^%$/, "pct"], [/^шт$/, "pcs"], [/^циклов$/, "cycles"], [/^°/, "deg"],
-];
-const family = (u) => (FAMILY.find(([re]) => re.test(String(u).toLowerCase())) || [null, String(u).toLowerCase()])[1];
-// Пары «число|единица» и числа без единицы в тексте.
-function facts(text) {
-  const s = String(text ?? "");
-  const pairs = new Set();
-  const withUnit = new Set();
-  for (const m of s.matchAll(NUM_UNIT)) {
-    for (const n of [m[1], m[2]].filter(Boolean).map(canon)) { pairs.add(`${n}|${family(m[3])}`); withUnit.add(n); }
-  }
-  const all = new Set((s.match(NUM) || []).map(canon));
-  const bare = new Set([...all].filter((n) => !withUnit.has(n)));
-  return { pairs, bare, all };
-}
-const supports = (f, n, fam) => f.pairs.has(`${n}|${fam}`) || f.bare.has(n);
-// where — часть записи [E#] (фасовки товара конкурента, различия аналога);
-// basis — основа цены («за мешок 25 кг»).
-const evidenceText = (e) => `${e.value ?? ""} ${e.label ?? ""} ${e.perPallet ? `${e.perPallet} шт` : ""} ${e.variant ?? ""} ${e.productName ?? ""} ${e.condition ?? ""} ${e.property ?? ""} ${e.line ?? ""} ${e.where ?? ""} ${e.basis ?? ""}`;
-const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-
+// Проверка ответа — Phase 4.2: checks/ (контракт, общие проверки,
+// политика, запуск). checkAnswer — прежний вход: общие проверки и политика
+// без доменных; поля результата — как до 4.2 (forbidden — списком).
+const CORE_CHECKS = [numbersCheck, citationsCheck, forbiddenCheck, productsCheck];
 export function checkAnswer(answer, evidence, { question = "", forbidden = [], catalog = null, allowedProductIds = null, contextText = "", historyText = "", maskNames = [] } = {}) {
-  const text = String(answer || "");
-  const byId = new Map(evidence.map((e) => [e.id, e]));
-  const cited = [...new Set([...text.matchAll(/\[(E\d+)\]/g)].map((m) => m[1]))];
-  const invalid = cited.filter((id) => !byId.has(id));
-  const data = facts(`${evidence.map(evidenceText).join(" \n ")} \n ${contextText}`);
-  const asked = facts(question);
-  const past = facts(historyText);
-  const fromHistory = new Set();
-  const unsupported = new Set();
-  const mismatched = new Set();
-  const uncited = new Set();
-  const echoed = new Set();
-  const lines = text.split(/\n+/);
-  const lineFacts = (line) => {
-    const refs = [...line.matchAll(/\[(E\d+)\]/g)].map((m) => m[1]).filter((id) => byId.has(id));
-    return { refs, f: refs.length ? facts(refs.map((id) => evidenceText(byId.get(id))).join(" \n ")) : null };
+  const r = runAnswerChecks(buildCheckInput({ answer, question, historyText, evidence, contextText, forbidden, catalog, allowedProductIds, maskNames }), CORE_CHECKS);
+  const g = r.grounding;
+  return {
+    citations: r.citations, invalidCitations: g.invalidCitations, unsupported: g.unsupported, mismatched: g.mismatched, uncited: g.uncited, echoed: g.echoed,
+    forbidden: textsOf(r.findings, "FORBIDDEN_DATA"), foreignProducts: g.foreignProducts, fromHistory: g.fromHistory, grounded: g.grounded,
   };
-  // Числа, которые где-то в ответе стоят рядом со своей ссылкой: итоговая
-  // строка «участники: 0,5 / 0,3» без ссылок их лишь повторяет.
-  const citedPairs = new Set();
-  for (const line of lines) {
-    const { f } = lineFacts(line);
-    if (!f) continue;
-    for (const m of line.matchAll(NUM_UNIT)) for (const n of [m[1], m[2]].filter(Boolean).map(canon)) if (supports(f, n, family(m[3]))) citedPairs.add(`${n}|${family(m[3])}`);
-  }
-
-  for (const line of lines) {
-    const { refs, f } = lineFacts(line);
-    for (const m of line.matchAll(NUM_UNIT)) {
-      const claim = m[0].trim();
-      // «на 1 кг», «на 1 м²», «на 1 мешок» — единица расчёта, не значение.
-      if (/на\s*$/i.test(line.slice(Math.max(0, m.index - 4), m.index)) && canon(m[1]) === "1" && !m[2]) continue;
-      const fam = family(m[3]);
-      for (const n of [m[1], m[2]].filter(Boolean).map(canon)) {
-        const inQuestion = asked.all.has(n);
-        if (!supports(data, n, fam)) {
-          // Число из вопроса повторено, чтобы его опровергнуть, — не ошибка.
-          // Со ссылкой и без отрицания — подано как данные.
-          if (inQuestion && (!refs.length || DENIAL.test(line.replace(/не (менее|более|ранее|позднее|выше|ниже)/gi, "")))) echoed.add(claim);
-          else if (!refs.length && supports(past, n, fam)) fromHistory.add(claim);
-          else unsupported.add(claim);
-        } else if (f && !supports(f, n, fam)) {
-          // Число из вопроса («7 и 28 суток»), подтверждённое ссылкой в другой
-          // строке ответа, здесь лишь упомянуто — не смешение источников.
-          if (!(inQuestion && citedPairs.has(`${n}|${fam}`))) mismatched.add(claim);
-        } else if (!f && !citedPairs.has(`${n}|${fam}`)) uncited.add(claim);
-      }
-    }
-  }
-
-  // Скрытое: числа из недоступных роли наблюдений, которых нет в доступных
-  // данных, и ссылки на их документы.
-  const forbiddenHits = new Set();
-  const lower = text.toLowerCase();
-  for (const fb of forbidden) {
-    if (fb.reference && fb.reference.length >= 6 && lower.includes(String(fb.reference).toLowerCase())) forbiddenHits.add(fb.reference);
-    for (const m of String(fb.value ?? "").matchAll(NUM_UNIT)) {
-      const fam = family(m[3]);
-      const secret = [m[1], m[2]].filter(Boolean).map(canon).filter((n) => !supports(data, n, fam));
-      if (!secret.length) continue;
-      for (const a of text.matchAll(NUM_UNIT)) {
-        if (family(a[3]) === fam && [a[1], a[2]].filter(Boolean).map(canon).some((n) => secret.includes(n))) forbiddenHits.add(a[0].trim());
-      }
-    }
-  }
-
-  // Товары в ответе: только те, что есть в данных этого ответа.
-  // Имя товара, которое само — обычное слово («стандарт» про ГОСТ), товаром
-  // в ответе считается, только если написано с заглавной (как имя).
-  const asName = (p) => !COMMON_WORDS.has(String(p.short_name || "").toLowerCase()) || new RegExp(`(?:^|[^а-яё])${String(p.short_name).charAt(0).toUpperCase()}${String(p.short_name).slice(1).toLowerCase()}|${String(p.short_name).toUpperCase()}`).test(text);
-  // Имена товаров конкурентов («П-Финиш») не считаются упоминанием нашего
-  // товара («ФИНИШ»): их вырезаем перед поиском.
-  const masked = [...new Set(maskNames.flatMap((n) => [n, ...[...String(n).matchAll(/[«"“]([^»"”]+)[»"”]/g)].map((m) => m[1])]).map((n) => String(n).trim()).filter((n) => n.length >= 3))]
-    .sort((a, b) => b.length - a.length)
-    .reduce((t, n) => t.replace(new RegExp(`(^|[^A-Za-zА-Яа-яЁё0-9-])${escapeRe(n)}[а-яё]{0,3}(?=$|[^A-Za-zА-Яа-яЁё0-9-])`, "giu"), "$1 "), text);
-  const foreign = catalog && allowedProductIds
-    ? detectProducts(masked, catalog).filter((p) => !allowedProductIds.has(p.id) && asName(p)).map((p) => p.short_name || p.name)
-    : [];
-
-  const out = {
-    citations: cited.filter((id) => byId.has(id)).map((id) => byId.get(id)),
-    invalidCitations: invalid,
-    unsupported: [...unsupported],
-    mismatched: [...mismatched],
-    uncited: [...uncited],
-    echoed: [...echoed],
-    forbidden: [...forbiddenHits],
-    foreignProducts: foreign,
-    fromHistory: [...fromHistory],
-  };
-  out.grounded = !invalid.length && !unsupported.size && !mismatched.size && !uncited.size && !forbiddenHits.size && !foreign.length;
-  return out;
 }
 
 // Отдаём в интерфейс только безопасные поля ссылки.

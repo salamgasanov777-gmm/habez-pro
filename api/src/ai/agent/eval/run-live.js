@@ -8,8 +8,10 @@
 // «только чтение» (PRAGMA query_only): SQLite откажет в любой записи.
 // Отпечаток всех таблиц до и после печатается — они должны совпасть.
 // Полный отчёт с ответами — в api/var/ai-eval/ (в git не попадает):
-// в ответах сотруднику есть внутренние данные.
-import { mkdirSync, writeFileSync } from "node:fs";
+// в ответах сотруднику есть внутренние данные. В отчёте и вход проверки
+// каждого ответа (checkInput, в нём скрытые от роли значения) — его без
+// модели и базы проверяет снова eval/recheck.js.
+import { mkdirSync, writeFileSync, chmodSync } from "node:fs";
 import { resolve } from "node:path";
 import { createHash } from "node:crypto";
 import { config } from "../../../config.js";
@@ -57,7 +59,7 @@ if (["3.2", "3.3", "3.4"].includes(set)) {
     const ev = evaluateCase32(c, last, { slugOf, live: true });
     const sum = (f) => turns.reduce((n, t) => n + (f(t) || 0), 0);
     results.push({ ...ev, question: c.turns.join(" → "), behavior: c.expected_behavior.text, answer: last.answer, mode: last.mode, route: last.route,
-      grounding: last.grounding, timings: last.timings, metrics: last.metrics, toolCalls: last.toolCalls,
+      grounding: last.grounding, checkInput: last.checkInput, timings: last.timings, metrics: last.metrics, toolCalls: last.toolCalls,
       usage: { input_tokens: sum((t) => t.usage?.input_tokens), output_tokens: sum((t) => t.usage?.output_tokens) },
       model: last.model, turnsModel: turns.filter((t) => t.model).length,
       // По каждой реплике: как закончился ответ модели, длина, ходы, токены.
@@ -70,7 +72,7 @@ if (["3.2", "3.3", "3.4"].includes(set)) {
   if (only && !only.has(c.id)) continue;
   const r = await runAgent({ tenantId: 1, scope, question: c.question, provider });
   const ev = evaluateCase(c, r, { slugOf, live: true });
-  results.push({ ...ev, behavior: c.behavior, answer: r.answer, grounding: r.grounding, withheld: r.withheld, timings: r.timings,
+  results.push({ ...ev, behavior: c.behavior, answer: r.answer, grounding: r.grounding, checkInput: r.checkInput, withheld: r.withheld, timings: r.timings,
     usage: r.usage, citations: r.citations.length, conflicts: r.conflicts, model: r.model, stopReason: r.stopReason });
   console.log(`${ev.pass ? "PASS" : "FAIL"} #${c.id} ${c.question}  (${r.timings.totalMs} мс${ev.warn.length ? `; ${ev.warn.join("; ")}` : ""})`);
   for (const f of ev.fails) console.log(`     ✗ ${f}`);
@@ -103,6 +105,8 @@ console.log(`отпечаток базы после: ${after} — ${summary.dbUn
 const dir = resolve(config.root, "var/ai-eval");
 mkdirSync(dir, { recursive: true });
 const file = resolve(dir, `eval-${set}-${scope}-${started.replace(/[:.]/g, "-")}.json`);
-writeFileSync(file, JSON.stringify({ summary, results }, null, 2));
+// Только владельцу: во входах проверки — скрытые от роли значения.
+writeFileSync(file, JSON.stringify({ summary, results }, null, 2), { mode: 0o600 });
+chmodSync(file, 0o600);
 console.log(`отчёт: ${file}`);
 process.exit(summary.passed === summary.total && summary.dbUnchanged ? 0 : 1);
