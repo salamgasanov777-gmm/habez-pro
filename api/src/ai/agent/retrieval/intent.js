@@ -53,8 +53,11 @@ const SYNONYMS = {
   заделки: ["задел"], заделать: ["задел"], выравнивания: ["выравн"], пола: ["пол"], фасада: ["фасад"], ванной: ["влаж"],
 };
 
+// Слово длиннее 40 знаков — не слово, а мусор («1111…»); схема инструментов
+// поиска его не примет (search_products/search_knowledge — до 40 знаков),
+// и весь ответ падал бы с ошибкой. Такие слова в поиск не идут.
 export function searchTerms(question) {
-  const words = norm(question).replace(/[^a-zа-я0-9 ]+/g, " ").split(/\s+/).filter((w) => w.length >= 3 && !STOP.has(w));
+  const words = norm(question).replace(/[^a-zа-я0-9 ]+/g, " ").split(/\s+/).filter((w) => w.length >= 3 && w.length <= 40 && !STOP.has(w));
   const out = new Set();
   for (const w of words) {
     // Окончание срезаем осторожно: «погода» → «погод», а не «пого» (иначе
